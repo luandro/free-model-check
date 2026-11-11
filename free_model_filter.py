@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run --script --env-file /home/luandro/Dev/AI/free-model-check/.env
+#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [

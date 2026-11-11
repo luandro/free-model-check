@@ -17,7 +17,7 @@ Use this skill when you need to:
 ## Prerequisites
 
 - **Python 3.10+** with `pyyaml` (`pip install pyyaml`, or run via `uv`).
-- **`AA_API_KEY`**: Artificial Analysis API key provided via environment variable (`export AA_API_KEY="..."`), `--aa-api-key`, or a local `.env` file when invoked via `uv run --script --env-file .env`.
+- **`AA_API_KEY`**: Artificial Analysis API key provided via environment variable (`export AA_API_KEY="..."`), `--aa-api-key`, or an optional local `.env` file passed explicitly with `uv run --script --env-file .env free_model_filter.py`. The script does not auto-load `.env`; it is gitignored.
 - **Secret hygiene**: `.env` is gitignored. Never read, print, or commit `.env` or API keys.
 
 ## Commands
