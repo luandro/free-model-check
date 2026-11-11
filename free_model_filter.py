@@ -137,6 +137,7 @@ from __future__ import annotations
 import argparse
 import csv
 import difflib
+import getpass
 import json
 import math
 import os
@@ -3035,6 +3036,27 @@ def collect_routes(args: argparse.Namespace) -> tuple[list[FreeRoute], dict[str,
     return list(unique.values()), counts, errors
 
 
+def require_aa_api_key(parser: argparse.ArgumentParser, args: argparse.Namespace) -> str:
+    """Return the AA key, prompting interactively only when a TTY is available."""
+    if args.aa_api_key:
+        return args.aa_api_key
+    if sys.stdin.isatty():
+        try:
+            key = getpass.getpass(
+                "AA_API_KEY is not set. Paste your Artificial Analysis API key "
+                "(input hidden), or press Enter to abort: "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            key = ""
+        if key:
+            return key
+    parser.error(
+        "Artificial Analysis API key required. Set AA_API_KEY, pass --aa-api-key, "
+        "or run interactively to be prompted."
+    )
+    raise AssertionError("unreachable")
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -3042,8 +3064,7 @@ def main() -> int:
     if args.self_test:
         return run_self_test()
 
-    if not args.aa_api_key:
-        parser.error("Artificial Analysis API key required. Set AA_API_KEY or pass --aa-api-key.")
+    args.aa_api_key = require_aa_api_key(parser, args)
 
     if args.source_url and args.source == "all":
         parser.error("--source-url requires a single --source (f24, openrouter, or opencode)")
