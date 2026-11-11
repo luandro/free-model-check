@@ -1,0 +1,15 @@
+# Secrets / local environment
+.env
+.env.*
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Generated reports
+free_models*.json
+free_models*.csv
+*.log
