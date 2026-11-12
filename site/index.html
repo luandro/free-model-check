@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Free Model Check — Live Ranking of Genuinely Free LLM Routes</title>
+  <meta name="description" content="Live ranking of genuinely free, benchmark-strong LLM routes verified across OpenRouter, OpenCode Zen, F24 SALES LiteLLM, Artificial Analysis, StealthMark, and models.dev.">
+  <meta name="color-scheme" content="dark light">
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('fmc-theme');
+        if (saved === 'light' || saved === 'dark') {
+          document.documentElement.setAttribute('data-theme', saved);
+        } else {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
+  <div class="hero-backdrop" aria-hidden="true">
+    <div class="hero-grid"></div>
+    <div class="hero-glow"></div>
+  </div>
+
+  <header class="site-header" role="banner">
+    <div class="container header-inner">
+      <div class="brand-group">
+        <a href="./" class="brand-link" aria-label="Free Model Check home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <rect x="2" y="2" width="16" height="16" rx="4" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M6 13.5L9 9.5L11.5 11.5L14.5 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="14.5" cy="6.5" r="1.4" fill="currentColor"/>
+            </svg>
+          </span>
+          <span class="brand-name">Free Model Check</span>
+        </a>
+        <span class="index-badge" id="aa-version-badge" title="Artificial Analysis Benchmark Index Version">AA Index v5.0</span>
+      </div>
+
+      <nav class="header-nav" aria-label="Primary navigation">
+        <a href="#rankings-section" class="nav-link">Rankings</a>
+        <a href="#methodology-section" class="nav-link">Verification &amp; Labels</a>
+        <a href="https://github.com/luandro/free-model-check" class="nav-link nav-link-external" target="_blank" rel="noopener noreferrer">
+          <span>GitHub</span>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M3.5 2.5H9.5V8.5M9.2 2.8L2.5 9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </a>
+        <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Switch to light theme" aria-pressed="false" title="Toggle dark/light theme">
+          <svg class="icon-sun" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="3.2" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M8 1.5V3M8 13V14.5M1.5 8H3M13 8H14.5M3.4 3.4L4.46 4.46M11.54 11.54L12.6 12.6M12.6 3.4L11.54 4.46M4.46 11.54L3.4 12.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+          <svg class="icon-moon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M13.2 9.8A5.6 5.6 0 0 1 6.2 2.8a5.6 5.6 0 1 0 7 7Z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="theme-toggle-text" id="theme-toggle-label">Dark</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main-content">
+    <section class="hero-section" aria-labelledby="hero-title">
+      <div class="container">
+        <div class="hero-eyebrow-row">
+          <span class="status-pill">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span>Strict Decimal Zero-Price Verification</span>
+          </span>
+          <div class="last-updated-wrap" id="last-updated-container">
+            <span class="last-updated-label">Last updated:</span>
+            <time id="last-updated-time" datetime="">Loading...</time>
+            <span id="last-updated-relative" class="last-updated-relative"></span>
+          </div>
+        </div>
+
+        <h1 id="hero-title" class="hero-title">Free Model Check</h1>
+        <p class="hero-subtitle">Live ranking of genuinely free, benchmark-strong LLM routes.</p>
+        <p class="hero-description">
+          Combines live provider catalogues from OpenRouter, OpenCode Zen, and F24 SALES LiteLLM with Artificial Analysis benchmarks, StealthMark proxy evaluations, and <code>models.dev</code> agent-readiness metadata. Only routes with explicit zero cost across every billable field pass by default.
+        </p>
+
+        <section class="summary-strip" aria-label="Report summary metrics">
+          <article class="summary-card">
+            <div class="summary-card-header">
+              <span class="summary-label">Selected Models</span>
+              <span class="summary-tag" id="summary-models-tag">AA Ranked</span>
+            </div>
+            <div class="summary-value" id="stat-selected-models">—</div>
+            <div class="summary-meta" id="stat-selected-models-meta">Loading benchmark matches...</div>
+          </article>
+
+          <article class="summary-card">
+            <div class="summary-card-header">
+              <span class="summary-label">Free Routes</span>
+              <span class="summary-tag summary-tag-accent" id="summary-routes-tag">Zero-Priced</span>
+            </div>
+            <div class="summary-value" id="stat-free-routes">—</div>
+            <div class="summary-meta" id="stat-free-routes-meta">Loading route verification...</div>
+          </article>
+
+          <article class="summary-card">
+            <div class="summary-card-header">
+              <span class="summary-label">Intelligence Floor</span>
+              <span class="summary-tag" id="summary-floor-tag">--min-intelligence</span>
+            </div>
+            <div class="summary-value" id="stat-intel-floor">—</div>
+            <div class="summary-meta" id="stat-intel-floor-meta">Minimum benchmark threshold</div>
+          </article>
+
+          <article class="summary-card">
+            <div class="summary-card-header">
+              <span class="summary-label">Sources</span>
+              <span class="summary-tag" id="summary-sources-tag">Live Feeds</span>
+            </div>
+            <div class="summary-value summary-value-sources" id="stat-sources">—</div>
+            <div class="summary-meta" id="stat-sources-meta">Catalogues &amp; capability indices</div>
+          </article>
+        </section>
+      </div>
+    </section>
+
+    <section id="rankings-section" class="rankings-section" aria-label="Model rankings and controls">
+      <div class="container">
+        <div class="controls-bar" role="region" aria-label="Search, filter, and sort controls">
+          <div class="section-tabs" role="tablist" aria-label="Dataset sections" id="section-tablist">
+            <button type="button" role="tab" id="tab-all" class="section-tab is-active" aria-selected="true" aria-controls="panel-container" data-section="all" hidden>
+              <span>All Sections</span>
+              <span class="tab-count" id="count-all">0</span>
+            </button>
+            <button type="button" role="tab" id="tab-aa" class="section-tab is-active" aria-selected="true" aria-controls="section-aa" data-section="aa">
+              <span>AA Scored</span>
+              <span class="tab-count" id="count-aa">0</span>
+            </button>
+            <button type="button" role="tab" id="tab-stealthmark" class="section-tab" aria-selected="false" aria-controls="section-stealthmark" data-section="stealthmark" hidden>
+              <span>StealthMark proxy</span>
+              <span class="tab-count" id="count-stealthmark">0</span>
+            </button>
+            <button type="button" role="tab" id="tab-unscored" class="section-tab" aria-selected="false" aria-controls="section-unscored" data-section="unscored" hidden>
+              <span>Unscored</span>
+              <span class="tab-count" id="count-unscored">0</span>
+            </button>
+          </div>
+
+          <div class="filters-group">
+            <div class="search-field">
+              <label for="search-input" class="sr-only">Search by model, creator, or provider</label>
+              <svg class="search-icon" width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="7" cy="7" r="4.8" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M10.6 10.6L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              <input
+                type="search"
+                id="search-input"
+                class="control-input search-input"
+                placeholder="Filter by model, creator, provider, route ID..."
+                autocomplete="off"
+                spellcheck="false"
+              >
+              <button type="button" id="clear-search" class="clear-search-btn" aria-label="Clear search" hidden>Clear</button>
+            </div>
+
+            <div class="select-field">
+              <label for="provider-filter" class="select-label">Provider</label>
+              <select id="provider-filter" class="control-select" aria-label="Filter by provider">
+                <option value="all">All providers</option>
+              </select>
+            </div>
+
+            <div class="select-field">
+              <label for="sort-select" class="select-label">Sort by</label>
+              <select id="sort-select" class="control-select" aria-label="Sort models by">
+                <option value="score">Score (high to low)</option>
+                <option value="intelligence">Intelligence (high to low)</option>
+                <option value="name">Model name (A to Z)</option>
+                <option value="context">Context window (high to low)</option>
+                <option value="routes">Route count (high to low)</option>
+                <option value="release">Release date (newest)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="status-Subbar" aria-live="polite" id="results-status-bar">
+          <div class="results-summary-text" id="results-count-text">Loading models...</div>
+          <div class="coverage-note" id="aa-coverage-note"></div>
+        </div>
+
+        <div id="error-banner" class="error-banner" role="alert" hidden></div>
+
+        <div id="panel-container">
+          <!-- 1. AA-SCORED SELECTED MODELS SECTION -->
+          <section id="section-aa" class="dataset-section" aria-labelledby="heading-aa">
+            <div class="section-header">
+              <div>
+                <div class="section-kicker">Primary Shortlist</div>
+                <h2 id="heading-aa" class="section-title">Artificial Analysis Scored Models</h2>
+              </div>
+              <p class="section-desc">
+                Verified free routes matched to Artificial Analysis benchmark entries meeting the intelligence floor. Score is the weighted capability index across available AA dimensions.
+              </p>
+            </div>
+
+            <div class="hybrid-table-header" aria-hidden="true">
+              <div class="col-rank">Rank</div>
+              <div class="col-model">Model &amp; Creator</div>
+              <div class="col-scores">Benchmarks (Score / Intel / Code / Agent)</div>
+              <div class="col-providers">Providers &amp; Routes</div>
+              <div class="col-specs">Context &amp; Readiness</div>
+              <div class="col-meta">Released &amp; Source</div>
+            </div>
+
+            <div id="aa-models-list" class="models-list" role="list">
+              <div class="loading-skeleton" aria-hidden="true">
+                <div class="skeleton-row"></div>
+                <div class="skeleton-row"></div>
+                <div class="skeleton-row"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 2. STEALTHMARK PROXY SECTION (hidden if empty or missing) -->
+          <section id="section-stealthmark" class="dataset-section" aria-labelledby="heading-stealthmark" hidden>
+            <div class="section-header">
+              <div>
+                <div class="section-kicker section-kicker-proxy">Separate Proxy Benchmark</div>
+                <h2 id="heading-stealthmark" class="section-title">StealthMark Proxy Models</h2>
+              </div>
+              <p class="section-desc">
+                Free routes for models absent from Artificial Analysis that have a complete 8-scene StealthMark evaluation. Uses StealthMark <strong>General (0–100)</strong> as an intelligence-shaped proxy; measures visual-SVG generation and multi-step planning games, not coding.
+              </p>
+            </div>
+
+            <div class="hybrid-table-header hybrid-table-header-stealth" aria-hidden="true">
+              <div class="col-rank">Rank</div>
+              <div class="col-model">Model &amp; Identity</div>
+              <div class="col-scores">StealthMark (General / Visual / Overall)</div>
+              <div class="col-providers">Providers &amp; Routes</div>
+              <div class="col-specs">Context &amp; Readiness</div>
+              <div class="col-meta">Edition &amp; Source</div>
+            </div>
+
+            <div id="stealthmark-models-list" class="models-list" role="list"></div>
+          </section>
+
+          <!-- 3. UNSCORED SECTION (hidden if empty or missing) -->
+          <section id="section-unscored" class="dataset-section" aria-labelledby="heading-unscored" hidden>
+            <div class="section-header">
+              <div>
+                <div class="section-kicker section-kicker-neutral">Unbenchmarked Agent-Ready</div>
+                <h2 id="heading-unscored" class="section-title">Unscored Free Models</h2>
+              </div>
+              <p class="section-desc">
+                Free text chat models confirmed agent-ready (tool calling supported and context window &gt;= 65,536 tokens) that currently lack both Artificial Analysis and StealthMark scores.
+              </p>
+            </div>
+
+            <div class="hybrid-table-header hybrid-table-header-unscored" aria-hidden="true">
+              <div class="col-rank">Rank</div>
+              <div class="col-model">Model &amp; Classification</div>
+              <div class="col-scores">Benchmark Status</div>
+              <div class="col-providers">Providers &amp; Routes</div>
+              <div class="col-specs">Context &amp; Tool Calling</div>
+              <div class="col-meta">Released</div>
+            </div>
+
+            <div id="unscored-models-list" class="models-list" role="list"></div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <!-- VERIFICATION & METHODOLOGY EXPLANATION SECTION -->
+    <section id="methodology-section" class="methodology-section" aria-labelledby="methodology-heading">
+      <div class="container">
+        <div class="section-header">
+          <div>
+            <div class="section-kicker">Audit Rules &amp; Definitions</div>
+            <h2 id="methodology-heading" class="section-title">Understanding Free-ness Labels &amp; Scores</h2>
+          </div>
+          <p class="section-desc">
+            Every route is audited against live provider pricing structures using exact arbitrary-precision <code>Decimal</code> parsing so tiny non-zero floats (such as <code>1e-999</code>) never underflow to zero.
+          </p>
+        </div>
+
+        <div class="legend-grid">
+          <article class="legend-card legend-card-verified">
+            <div class="legend-card-top">
+              <span class="verif-badge verif-zero">zero-priced</span>
+              <span class="legend-default-pill is-included">Included by default</span>
+            </div>
+            <h3 class="legend-title">Verified Zero-Priced Route</h3>
+            <p class="legend-body">
+              The provider publishes an explicit <code>0</code> price across all required token fields and every remaining billable dimension in the pricing tree: input/output tokens, requests, images, audio, cache read/write, and context tier overrides. OpenRouter routes must also declare text-only output modalities and contain no price mentions in their prose description.
+            </p>
+            <div class="legend-marker-note">
+              <span class="mono-label">Provider marker:</span> <code>provider</code> (no suffix symbol)
+            </div>
+          </article>
+
+          <article class="legend-card">
+            <div class="legend-card-top">
+              <span class="verif-badge verif-freetier">free-tier (*)</span>
+              <span class="legend-default-pill">Opt-in (--include-free-tier)</span>
+            </div>
+            <h3 class="legend-title">Unverified Free-Tier Claim</h3>
+            <p class="legend-body">
+              Asserted by the F24 SALES LiteLLM scanner while pointing at a vendor endpoint that requires your own provider API key (<code>requires_provider_key: true</code>). Usage is subject to account quotas and may bill at standard list price without warning.
+            </p>
+            <div class="legend-marker-note">
+              <span class="mono-label">Provider marker:</span> <code>provider*</code> (asterisk suffix)
+            </div>
+          </article>
+
+          <article class="legend-card">
+            <div class="legend-card-top">
+              <span class="verif-badge verif-mirror">mirror-listed (&dagger;)</span>
+              <span class="legend-default-pill">Opt-in (--include-free-tier)</span>
+            </div>
+            <h3 class="legend-title">Stale Third-Party Mirror</h3>
+            <p class="legend-body">
+              A third-party capability mirror (<code>models.dev</code>) lists zero cost (<code>stale_mirror: true</code>), but the live upstream provider catalogue does not confirm a free route. Excluded by default so lagging mirror state never pollutes the verified shortlist.
+            </p>
+            <div class="legend-marker-note">
+              <span class="mono-label">Provider marker:</span> <code>provider&dagger;</code> (dagger suffix)
+            </div>
+          </article>
+
+          <article class="legend-card legend-card-proxy">
+            <div class="legend-card-top">
+              <span class="verif-badge verif-proxy">StealthMark proxy</span>
+              <span class="legend-default-pill is-separate">Separate proxy section</span>
+            </div>
+            <h3 class="legend-title">StealthMark General Proxy Score</h3>
+            <p class="legend-body">
+              Evaluates newly released or stealth models absent from Artificial Analysis using StealthMark's <code>General</code> score (0–100) from complete 8-scene runs. StealthMark tests visual-SVG generation and multi-step planning games rather than software engineering; it is labelled <code>stealthmark-proxy</code> and never overrides an Artificial Analysis score.
+            </p>
+            <div class="legend-marker-note">
+              <span class="mono-label">Score source:</span> <code>stealthmark-proxy</code>
+            </div>
+          </article>
+        </div>
+
+        <div class="secondary-notes-grid">
+          <div class="note-box">
+            <h3 class="note-box-title">Score Sources: <code>own</code> vs <code>inherited</code></h3>
+            <p class="note-box-text">
+              Artificial Analysis's free API tier exposes <code>artificial_analysis_intelligence_index</code> (coding and agentic sub-indices are Pro-only). When a canonical AA model slug has no direct score while a dated snapshot or reasoning variant in the same model family is scored, the pipeline inherits the family's highest score and marks <code>score_source: "inherited"</code> alongside the exact donor slug in <code>score_inherited_from</code>.
+            </p>
+          </div>
+          <div class="note-box">
+            <h3 class="note-box-title">Agent Readiness Gate</h3>
+            <p class="note-box-text">
+              Each model is cross-referenced against <code>models.dev</code> capability metadata. A model is marked <strong>Agent Ready</strong> when <code>tool_call</code> is confirmed <code>true</code> and its context window meets or exceeds <code>65,536</code> tokens (64K).
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer" role="contentinfo">
+    <div class="container footer-inner">
+      <div class="footer-col footer-col-brand">
+        <div class="footer-brand-title">Free Model Check</div>
+        <p class="footer-brand-text">
+          Automated discovery and benchmark verification for zero-priced LLM routes. Generated by <code>free_model_filter.py</code>.
+        </p>
+        <p class="footer-repo-link-wrap">
+          <a href="https://github.com/luandro/free-model-check" class="footer-repo-link" target="_blank" rel="noopener noreferrer">
+            github.com/luandro/free-model-check
+          </a>
+        </p>
+      </div>
+
+      <div class="footer-col">
+        <h3 class="footer-heading">Benchmark &amp; Metadata Sources</h3>
+        <ul class="footer-links">
+          <li><a href="https://artificialanalysis.ai/" target="_blank" rel="noopener noreferrer">Artificial Analysis</a></li>
+          <li><a href="https://stealthmodels.com/" target="_blank" rel="noopener noreferrer">StealthMark (stealthmodels.com)</a></li>
+          <li><a href="https://models.dev/" target="_blank" rel="noopener noreferrer">models.dev Capability Registry</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-col">
+        <h3 class="footer-heading">Route Catalogues</h3>
+        <ul class="footer-links">
+          <li><a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer">OpenRouter Public API</a></li>
+          <li><a href="https://opencode.ai/" target="_blank" rel="noopener noreferrer">OpenCode Zen Catalogue</a></li>
+          <li><a href="https://www.f24-sales.com/" target="_blank" rel="noopener noreferrer">F24 SALES LiteLLM Feed</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+name: Update free model ranking
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip pyyaml
+
+      - name: Build free model report
+        env:
+          AA_API_KEY: ${{ secrets.AA_API_KEY }}
+        run: python free_model_filter.py --include-unscored
+
+      - name: Prepare Pages site
+        run: |
+          mkdir -p _site/data
+          cp free_models.json _site/data/free_models.json
+          cp free_models_stealthmark.json _site/data/free_models_stealthmark.json
+          cp free_models_unbenchmarked.json _site/data/free_models_unbenchmarked.json
+          cp -R site/. _site/
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

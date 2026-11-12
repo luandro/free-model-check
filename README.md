@@ -67,6 +67,18 @@ python3 free_model_filter.py --include-free-tier
 python3 free_model_filter.py --all
 ```
 
+## GitHub Pages
+
+A scheduled GitHub Action rebuilds the report every six hours and deploys the
+ranking to:
+
+https://luandro.github.io/free-model-check/
+
+The workflow requires the `AA_API_KEY` repository secret and GitHub Pages set to
+**GitHub Actions** as the source. It runs `free_model_filter.py
+--include-unscored` so the page can show both AA-scored and unscored free models
+in separate sections.
+
 ## Configuration
 
 | Flag | Default | Purpose |
