@@ -84,6 +84,10 @@ last known good report from `site/data/` instead of publishing an empty page.
 Those three files are the only generated artifacts tracked in git; the root-level
 `free_models*.json` and `free_models*.csv` reports stay ignored.
 
+The page itself is a printed register rather than a dashboard: slate paper, two
+rule weights, tabular figures, no cards and no colour used as decoration. It is
+checked against the Hallmark gates (Almanac theme) and lints clean.
+
 ## Configuration
 
 | Flag | Default | Purpose |
