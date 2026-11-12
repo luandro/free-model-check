@@ -259,12 +259,7 @@ def http_get_bytes(url: str, headers: dict[str, str] | None = None, timeout: int
             return response.read()
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", "replace")[:500]
-        error = RuntimeError(f"HTTP {exc.code} fetching {url}: {body}")
-        retry_after = exc.headers.get("Retry-After") if exc.headers else None
-        if retry_after:
-            # Attach the header for callers that implement backoff/retry.
-            setattr(error, "retry_after", retry_after)
-        raise error from exc
+        raise RuntimeError(f"HTTP {exc.code} fetching {url}: {body}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"Network error fetching {url}: {exc}") from exc
 
@@ -722,8 +717,6 @@ def fetch_aa_models(
     api_key: str,
     base_url: str,
     verbose: bool = False,
-    max_retries: int = 4,
-    retry_delay: float = 5.0,
 ) -> tuple[list[dict[str, Any]], float | None]:
     page = 1
     rows: list[dict[str, Any]] = []
@@ -738,37 +731,7 @@ def fetch_aa_models(
         )
         if verbose:
             eprint(f"Fetching Artificial Analysis page {page} ...")
-
-        payload: Any = None
-        for attempt in range(max_retries + 1):
-            try:
-                payload = http_get_json(
-                    page_url,
-                    headers={"x-api-key": api_key, "Accept": "application/json"},
-                    timeout=60,
-                )
-                break
-            except RuntimeError as exc:
-                retry_after_header = getattr(exc, "retry_after", None)
-                retry_after: float | None = None
-                if retry_after_header is not None:
-                    try:
-                        retry_after = float(retry_after_header)
-                    except (TypeError, ValueError):
-                        retry_after = None
-                if retry_after is None:
-                    match = re.search(r"retry[-_ ]after[^\d]*(\d+)", str(exc), re.I)
-                    if match:
-                        retry_after = float(match.group(1))
-                if attempt >= max_retries:
-                    raise
-                delay = retry_after if retry_after is not None else min(60, retry_delay * (2 ** attempt))
-                eprint(
-                    f"Warning: Artificial Analysis page {page} failed ({exc}); "
-                    f"retrying in {delay:.0f}s "
-                    f"({attempt + 1}/{max_retries})"
-                )
-                time.sleep(delay)
+        payload = http_get_json(page_url, headers={"x-api-key": api_key, "Accept": "application/json"})
         if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
             raise RuntimeError("Unexpected Artificial Analysis response shape")
         rows.extend([r for r in payload["data"] if isinstance(r, dict)])
@@ -2119,7 +2082,7 @@ def build_unbenchmarked(
             bucket = grouped[_route_identity(route)]
         else:
             bucket["stealth"] = bucket["stealth"] or is_stealth
-            bucket["legacy"] = bucket["legacy"] and is_legacy
+            bucket["legacy"] = bucket["legacy"] or is_legacy
 
         bucket["free_routes"].append(
             {
@@ -2485,18 +2448,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--aa-api-key", default=os.getenv("AA_API_KEY"), help="Artificial Analysis API key (default: AA_API_KEY env var)")
     p.add_argument("--aa-url", default=DEFAULT_AA_URL, help="Artificial Analysis free models endpoint")
-    p.add_argument(
-        "--aa-retries",
-        type=int,
-        default=4,
-        help="Retries per Artificial Analysis page on HTTP 429/5xx/network errors (default: 4)",
-    )
-    p.add_argument(
-        "--aa-retry-delay",
-        type=float,
-        default=5.0,
-        help="Initial backoff in seconds between Artificial Analysis retries (default: 5)",
-    )
     p.add_argument("--f24-url", default=DEFAULT_F24_URL, help="F24 LiteLLM YAML URL")
     p.add_argument("--f24-file", help="Read F24/LiteLLM YAML from a local file instead of --f24-url")
     p.add_argument("--models-dev-url", default=DEFAULT_MODELS_DEV_URL, help="models.dev provider-agnostic JSON URL")
@@ -3167,8 +3118,6 @@ def main() -> int:
         args.aa_api_key,
         args.aa_url,
         verbose=args.verbose,
-        max_retries=args.aa_retries,
-        retry_delay=args.aa_retry_delay,
     )
     if not aa_models:
         raise RuntimeError("Artificial Analysis returned no language models")
