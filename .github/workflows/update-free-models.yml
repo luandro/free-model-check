@@ -43,40 +43,38 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -eq 0 ]; then
-            echo "produced=true" >> "$GITHUB_OUTPUT"
+            echo "source=fresh" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if grep -qE "HTTP 429|Rate limit exceeded" /tmp/build.log; then
-            echo "::warning::Artificial Analysis rate limit reached; keeping the previous Pages deployment."
-            echo "produced=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Artificial Analysis rate limit reached; deploying the last known good report."
+            echo "source=snapshot" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           exit "$status"
 
       - name: Prepare Pages site
-        if: steps.build.outputs.produced != 'false'
         run: |
           mkdir -p _site/data
-          cp free_models.json _site/data/free_models.json
-          cp free_models_stealthmark.json _site/data/free_models_stealthmark.json
-          cp free_models_unbenchmarked.json _site/data/free_models_unbenchmarked.json
-          cp -R site/. _site/
+          if [ "${{ steps.build.outputs.source }}" = "fresh" ]; then
+            cp free_models.json _site/data/free_models.json
+            cp free_models_stealthmark.json _site/data/free_models_stealthmark.json
+            cp free_models_unbenchmarked.json _site/data/free_models_unbenchmarked.json
+          else
+            cp site/data/free_models.json _site/data/free_models.json
+            cp site/data/free_models_stealthmark.json _site/data/free_models_stealthmark.json
+            cp site/data/free_models_unbenchmarked.json _site/data/free_models_unbenchmarked.json
+          fi
+          cp -R site/index.html site/styles.css site/app.js _site/
 
       - name: Configure Pages
-        if: steps.build.outputs.produced != 'false'
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
-        if: steps.build.outputs.produced != 'false'
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
 
       - name: Deploy to GitHub Pages
-        if: steps.build.outputs.produced != 'false'
         id: deployment
         uses: actions/deploy-pages@v4
-
-      - name: Report skipped deployment
-        if: steps.build.outputs.produced == 'false'
-        run: echo "No new report was produced; the existing Pages site is still live."

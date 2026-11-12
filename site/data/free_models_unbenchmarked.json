@@ -1,0 +1,547 @@
+{
+  "summary": {
+    "artificial_analysis_index_version": 5.0,
+    "aa_models_considered": 734,
+    "free_underlying_models_matched": 13,
+    "selected_underlying_models": 5,
+    "intelligence_floor": 25.0,
+    "intelligence_floor_source": "--min-intelligence",
+    "adaptive_filter_enabled": false,
+    "thresholds": {
+      "absolute": {
+        "min_intelligence": 25.0,
+        "min_coding_or_agentic": 25.0
+      },
+      "adaptive": {
+        "intelligence_percentile": null,
+        "intelligence_cutoff": null,
+        "specialized_percentile": null,
+        "specialized_cutoff": null
+      },
+      "useful_tier": {
+        "min_intelligence": 22.0,
+        "min_coding_or_agentic": 20.0,
+        "included_in_output": false
+      },
+      "agent_ready": {
+        "required_for_selection": false,
+        "min_context": 65536,
+        "tool_calling_required": true
+      }
+    },
+    "benchmark_coverage": {
+      "aa_catalogue_models_with_intelligence_score": 121,
+      "aa_catalogue_models_with_coding_or_agentic_score": 0,
+      "coding_agentic_available": false,
+      "free_candidates_scored": 10,
+      "free_candidates_scored_own": 9,
+      "free_candidates_scored_inherited": 1,
+      "free_candidates_unscored": 3,
+      "adaptive_pool": "free candidates with a score"
+    },
+    "stealthmark": {
+      "models_gathered": 54,
+      "routes_matched": 0,
+      "models_promoted": 0,
+      "selected_models": 0,
+      "models_below_floor": 0,
+      "models_skipped_not_agent_ready": 0,
+      "models_skipped_not_chat": 0,
+      "min_intelligence": 25.0,
+      "scoring": "StealthMark General as an intelligence proxy; no AA coding score",
+      "source_url": "https://stealthmodels.com/data/v1/benchmarks-page.json",
+      "enabled": true,
+      "feed_error": null,
+      "models_selected": 0,
+      "routes_selected": 0
+    },
+    "generated_unix": 1794441654,
+    "runtime_seconds": 29.821,
+    "sources_requested": "all",
+    "routes_by_source": {
+      "f24": 71,
+      "openrouter": 14,
+      "opencode": 12
+    },
+    "source_errors": [],
+    "free_routes_seen": 26,
+    "free_routes_unmatched_to_aa": 10,
+    "routes_by_verification": {
+      "zero-priced": 26,
+      "free-tier": 0,
+      "mirror-listed": 0
+    },
+    "free_tier_routes_skipped": 71,
+    "mirror_routes_skipped": 0,
+    "include_free_tier": false,
+    "include_unscored": true,
+    "unbenchmarked_models": 11,
+    "unbenchmarked_routes": 11,
+    "stealthmark_models": 0,
+    "stealthmark_routes": 0,
+    "stealthmark_models_gathered": 54,
+    "stealthmark_feed_error": null,
+    "models_dev_entries_seen": 613,
+    "models_dev_error": null,
+    "attribution": {
+      "Artificial Analysis": "https://artificialanalysis.ai/",
+      "F24 SALES": "https://www.f24-sales.com/",
+      "OpenRouter": "https://openrouter.ai/",
+      "models.dev": "https://models.dev/",
+      "StealthMark": "https://stealthmodels.com/"
+    }
+  },
+  "models": [
+    {
+      "model": {
+        "name": "Iceman Free",
+        "models_dev_id": "iceman-free",
+        "description": "Stealth model, free for a limited time"
+      },
+      "benchmark": {
+        "status": "no-aa-entry",
+        "aa_slug": null
+      },
+      "capabilities": {
+        "context": 262144,
+        "tool_call": true,
+        "reasoning": true,
+        "release_date": "2026-11-06",
+        "agent_ready": true
+      },
+      "stealth": true,
+      "legacy": false,
+      "free_routes": [
+        {
+          "provider": "opencode",
+          "route_model": "iceman-free",
+          "model_name": "Iceman Free",
+          "api_base": null,
+          "source": "opencode",
+          "source_label": "OpenCode provider catalogue (zero-priced)",
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false
+        }
+      ],
+      "route_count": 1,
+      "providers": [
+        "opencode"
+      ],
+      "sources": [
+        "OpenCode provider catalogue (zero-priced)"
+      ]
+    },
+    {
+      "model": {
+        "name": "Baidu: ERNIE-5.5-Flash-Preview (free)",
+        "models_dev_id": "baidu/ernie-5.5-flash-preview:free",
+        "description": "ERNIE 5.5 Flash Preview is the latest foundation model in the ERNIE family, with comprehensive improvements in coding, agentic capabilities, knowledge work, and deep research. It has 280 billion total..."
+      },
+      "benchmark": {
+        "status": "no-aa-entry",
+        "aa_slug": null
+      },
+      "capabilities": {
+        "context": 1024000,
+        "tool_call": true,
+        "reasoning": true,
+        "release_date": "2026-11-10",
+        "agent_ready": true
+      },
+      "stealth": false,
+      "legacy": false,
+      "free_routes": [
+        {
+          "provider": "openrouter",
+          "route_model": "baidu/ernie-5.5-flash-preview:free",
+          "model_name": "Baidu: ERNIE-5.5-Flash-Preview (free)",
+          "api_base": null,
+          "source": "openrouter",
+          "source_label": "OpenRouter public models API (zero-priced)",
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false
+        }
+      ],
+      "route_count": 1,
+      "providers": [
+        "openrouter"
+      ],
+      "sources": [
+        "OpenRouter public models API (zero-priced)"
+      ]
+    },
+    {
+      "model": {
+        "name": "LiquidAI: LFM3-1.7B (free)",
+        "models_dev_id": "liquid/lfm-3-1.7b:free",
+        "description": "A compact 1.7B-parameter text model with a 256K-token context, post-trained for agents, tool calling, and structured outputs. It reasons before it answers. Prompts and outputs may be retained and used..."
+      },
+      "benchmark": {
+        "status": "no-aa-entry",
+        "aa_slug": null
+      },
+      "capabilities": {
+        "context": 262144,
+        "tool_call": true,
+        "reasoning": true,
+        "release_date": "2026-11-06",
+        "agent_ready": true
+      },
+      "stealth": false,
+      "legacy": false,
+      "free_routes": [
+        {
+          "provider": "openrouter",
+          "route_model": "liquid/lfm-3-1.7b:free",
+          "model_name": "LiquidAI: LFM3-1.7B (free)",
+          "api_base": null,
+          "source": "openrouter",
+          "source_label": "OpenRouter public models API (zero-priced)",
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false
+        }
+      ],
+      "route_count": 1,
+      "providers": [
+        "openrouter"
+      ],
+      "sources": [
+        "OpenRouter public models API (zero-priced)"
+      ]
+    },
+    {
+      "model": {
+        "name": "LongCat 2.5 Free",
+        "models_dev_id": "meituan/longcat-2.5",
+        "description": "Meituan's multimodal reasoning model for long-horizon coding and agent tasks, with visual understanding and a 1M-token context window"
+      },
+      "benchmark": {
+        "status": "aa-unscored",
+        "aa_slug": "longcat-2-0"
+      },
+      "capabilities": {
+        "context": 1000000,
+        "tool_call": true,
+        "reasoning": true,
+        "release_date": "2026-11-02",
+        "agent_ready": true
+      },
+      "stealth": false,
+      "legacy": false,
+      "free_routes": [
+        {
+          "provider": "opencode",
+          "route_model": "longcat-2.5-free",
+          "model_name": "LongCat 2.5 Free",
+          "api_base": null,
+          "source": "opencode",
+          "source_label": "OpenCode provider catalogue (zero-priced)",
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false
+        }
+      ],
+      "route_count": 1,
+      "providers": [
+        "opencode"
+      ],
+      "sources": [
+        "OpenCode provider catalogue (zero-priced)"
+      ]
+    },
+    {
+      "model": {
+        "name": "Recursive: Flint (free)",
+        "models_dev_id": "recursive/flint",
+        "description": "Flint is an open-weight mixture-of-experts model from Recursive, with about 2.5B active parameters out of 40B total, built by Recursive's autoresearch system Eureka Machine for coding agents. It is suited..."
+      },
+      "benchmark": {
+        "status": "no-aa-entry",
+        "aa_slug": null
+      },
+      "capabilities": {
+        "context": 262144,
+        "tool_call": true,
+        "reasoning": true,
+        "release_date": "2026-10-21",
+        "agent_ready": true
+      },
+      "stealth": false,
+      "legacy": false,
+      "free_routes": [
+        {
+          "provider": "openrouter",
+          "route_model": "recursive/flint-v1.0:free",
+          "model_name": "Recursive: Flint (free)",
+          "api_base": null,
+          "source": "openrouter",
+          "source_label": "OpenRouter public models API (zero-priced)",
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false
+        }
+      ],
+      "route_count": 1,
+      "providers": [
+        "openrouter"
+      ],
+      "sources": [
+        "OpenRouter public models API (zero-priced)"
+      ]
+    },
+    {
+      "model": {
+        "name": "Flint 40B Free",
+        "models_dev_id": "flint-40b-free",
+        "description": "Open-weight mixture-of-experts model with about 2.5B active parameters for local coding agents"
+      },
+      "benchmark": {
+        "status": "no-aa-entry",
+        "aa_slug": null
+      },
+      "capabilities": {
+        "context": 262144,
+        "tool_call": true,
+        "reasoning": true,
+        "release_date": "2026-10-21",
+        "agent_ready": true
+      },
+      "stealth": false,
+      "legacy": false,
+      "free_routes": [
+        {
+          "provider": "opencode",
+          "route_model": "flint-40b-free",
+          "model_name": "Flint 40B Free",
+          "api_base": null,
+          "source": "opencode",
+          "source_label": "OpenCode provider catalogue (zero-priced)",
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false
+        }
+      ],
+      "route_count": 1,
+      "providers": [
+        "opencode"
+      ],
+      "sources": [
+        "OpenCode provider catalogue (zero-priced)"
+      ]
+    },
+    {
+      "model": {
+        "name": "Beam Free",
+        "models_dev_id": "reflection/beam-1.0-501b-a23b",
+        "description": "Sparse mixture-of-experts reasoning model with 23B active parameters for coding and agentic workflows"
+      },
+      "benchmark": {
+        "status": "no-aa-entry",
+        "aa_slug": null
+      },
+      "capabilities": {
+        "context": 1048576,
+        "tool_call": true,
+        "reasoning": true,
+        "release_date": "2026-10-05",
+        "agent_ready": true
+      },
+      "stealth": false,
+      "legacy": false,
+      "free_routes": [
+        {
+          "provider": "opencode",
+          "route_model": "beam-free",
+          "model_name": "Beam Free",
+          "api_base": null,
+          "source": "opencode",
+          "source_label": "OpenCode provider catalogue (zero-priced)",
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false
+        }
+      ],
+      "route_count": 1,
+      "providers": [
+        "opencode"
+      ],
+      "sources": [
+        "OpenCode provider catalogue (zero-priced)"
+      ]
+    },
+    {
+      "model": {
+        "name": "Dots Studio: Dots3-Note Preview (free)",
+        "models_dev_id": "dots-studio/dots-3-note-preview:free",
+        "description": "Dots3-Note Preview is an open-weight mixture-of-experts model from Dots Studio, with 16B active parameters out of 280B total. It is the lightest model in the Dots 3 family and is..."
+      },
+      "benchmark": {
+        "status": "no-aa-entry",
+        "aa_slug": null
+      },
+      "capabilities": {
+        "context": 512000,
+        "tool_call": true,
+        "reasoning": true,
+        "release_date": "2026-08-14",
+        "agent_ready": true
+      },
+      "stealth": false,
+      "legacy": false,
+      "free_routes": [
+        {
+          "provider": "openrouter",
+          "route_model": "dots-studio/dots-3-note-preview:free",
+          "model_name": "Dots Studio: Dots3-Note Preview (free)",
+          "api_base": null,
+          "source": "openrouter",
+          "source_label": "OpenRouter public models API (zero-priced)",
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false
+        }
+      ],
+      "route_count": 1,
+      "providers": [
+        "openrouter"
+      ],
+      "sources": [
+        "OpenRouter public models API (zero-priced)"
+      ]
+    },
+    {
+      "model": {
+        "name": "LiquidAI: LFM2.5-2.6B (free)",
+        "models_dev_id": "liquid/lfm-2.5-2.6b:free",
+        "description": "LFM2.5-2.6B is a compact reasoning model from Liquid AI. It is suited for agent workflows, data extraction, RAG, and long-context processing. Liquid advises against using it for agentic coding or..."
+      },
+      "benchmark": {
+        "status": "no-aa-entry",
+        "aa_slug": null
+      },
+      "capabilities": {
+        "context": 65536,
+        "tool_call": true,
+        "reasoning": true,
+        "release_date": "2026-08-11",
+        "agent_ready": true
+      },
+      "stealth": false,
+      "legacy": false,
+      "free_routes": [
+        {
+          "provider": "openrouter",
+          "route_model": "liquid/lfm-2.5-2.6b:free",
+          "model_name": "LiquidAI: LFM2.5-2.6B (free)",
+          "api_base": null,
+          "source": "openrouter",
+          "source_label": "OpenRouter public models API (zero-priced)",
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false
+        }
+      ],
+      "route_count": 1,
+      "providers": [
+        "openrouter"
+      ],
+      "sources": [
+        "OpenRouter public models API (zero-priced)"
+      ]
+    },
+    {
+      "model": {
+        "name": "NVIDIA: Nemotron 3 Nano Omni (free)",
+        "models_dev_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "description": "NVIDIA Nemotron™ 3 Nano Omni is a 30B-A3B open multimodal model designed to function as a perception and context sub-agent in enterprise agent systems. It accepts text, image, video, and..."
+      },
+      "benchmark": {
+        "status": "aa-unscored",
+        "aa_slug": "nemotron-3-nano-omni-30b-a3b"
+      },
+      "capabilities": {
+        "context": 256000,
+        "tool_call": true,
+        "reasoning": true,
+        "release_date": "2026-04-28",
+        "agent_ready": true
+      },
+      "stealth": false,
+      "legacy": false,
+      "free_routes": [
+        {
+          "provider": "openrouter",
+          "route_model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+          "model_name": "NVIDIA: Nemotron 3 Nano Omni (free)",
+          "api_base": null,
+          "source": "openrouter",
+          "source_label": "OpenRouter public models API (zero-priced)",
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false
+        }
+      ],
+      "route_count": 1,
+      "providers": [
+        "openrouter"
+      ],
+      "sources": [
+        "OpenRouter public models API (zero-priced)"
+      ]
+    },
+    {
+      "model": {
+        "name": "Big Pickle",
+        "models_dev_id": "big-pickle",
+        "description": "Reasoning model for deliberate analysis, multi-step problem solving, and tool use"
+      },
+      "benchmark": {
+        "status": "no-aa-entry",
+        "aa_slug": null
+      },
+      "capabilities": {
+        "context": 200000,
+        "tool_call": true,
+        "reasoning": true,
+        "release_date": "2025-10-17",
+        "agent_ready": true
+      },
+      "stealth": false,
+      "legacy": false,
+      "free_routes": [
+        {
+          "provider": "opencode",
+          "route_model": "big-pickle",
+          "model_name": "Big Pickle",
+          "api_base": null,
+          "source": "opencode",
+          "source_label": "OpenCode provider catalogue (zero-priced)",
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false
+        }
+      ],
+      "route_count": 1,
+      "providers": [
+        "opencode"
+      ],
+      "sources": [
+        "OpenCode provider catalogue (zero-priced)"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,511 @@
+{
+  "summary": {
+    "artificial_analysis_index_version": 5.0,
+    "aa_models_considered": 734,
+    "free_underlying_models_matched": 13,
+    "selected_underlying_models": 5,
+    "intelligence_floor": 25.0,
+    "intelligence_floor_source": "--min-intelligence",
+    "adaptive_filter_enabled": false,
+    "thresholds": {
+      "absolute": {
+        "min_intelligence": 25.0,
+        "min_coding_or_agentic": 25.0
+      },
+      "adaptive": {
+        "intelligence_percentile": null,
+        "intelligence_cutoff": null,
+        "specialized_percentile": null,
+        "specialized_cutoff": null
+      },
+      "useful_tier": {
+        "min_intelligence": 22.0,
+        "min_coding_or_agentic": 20.0,
+        "included_in_output": false
+      },
+      "agent_ready": {
+        "required_for_selection": false,
+        "min_context": 65536,
+        "tool_calling_required": true
+      }
+    },
+    "benchmark_coverage": {
+      "aa_catalogue_models_with_intelligence_score": 121,
+      "aa_catalogue_models_with_coding_or_agentic_score": 0,
+      "coding_agentic_available": false,
+      "free_candidates_scored": 10,
+      "free_candidates_scored_own": 9,
+      "free_candidates_scored_inherited": 1,
+      "free_candidates_unscored": 3,
+      "adaptive_pool": "free candidates with a score"
+    },
+    "stealthmark": {
+      "models_gathered": 54,
+      "routes_matched": 0,
+      "models_promoted": 0,
+      "selected_models": 0,
+      "models_below_floor": 0,
+      "models_skipped_not_agent_ready": 0,
+      "models_skipped_not_chat": 0,
+      "min_intelligence": 25.0,
+      "scoring": "StealthMark General as an intelligence proxy; no AA coding score",
+      "source_url": "https://stealthmodels.com/data/v1/benchmarks-page.json",
+      "enabled": true,
+      "feed_error": null,
+      "models_selected": 0,
+      "routes_selected": 0
+    },
+    "generated_unix": 1794441654,
+    "runtime_seconds": 29.821,
+    "sources_requested": "all",
+    "routes_by_source": {
+      "f24": 71,
+      "openrouter": 14,
+      "opencode": 12
+    },
+    "source_errors": [],
+    "free_routes_seen": 26,
+    "free_routes_unmatched_to_aa": 10,
+    "routes_by_verification": {
+      "zero-priced": 26,
+      "free-tier": 0,
+      "mirror-listed": 0
+    },
+    "free_tier_routes_skipped": 71,
+    "mirror_routes_skipped": 0,
+    "include_free_tier": false,
+    "include_unscored": true,
+    "unbenchmarked_models": 11,
+    "unbenchmarked_routes": 11,
+    "stealthmark_models": 0,
+    "stealthmark_routes": 0,
+    "stealthmark_models_gathered": 54,
+    "stealthmark_feed_error": null,
+    "models_dev_entries_seen": 613,
+    "models_dev_error": null,
+    "attribution": {
+      "Artificial Analysis": "https://artificialanalysis.ai/",
+      "F24 SALES": "https://www.f24-sales.com/",
+      "OpenRouter": "https://openrouter.ai/",
+      "models.dev": "https://models.dev/",
+      "StealthMark": "https://stealthmodels.com/"
+    }
+  },
+  "models": [
+    {
+      "model": {
+        "aa_id": "dbe7c625-3100-4463-b479-a228c41f75dd",
+        "aa_slug": "deepseek-v4-1-flash",
+        "name": "DeepSeek V4.1 Flash (Max)",
+        "creator": "DeepSeek",
+        "release_date": "2026-09-10"
+      },
+      "quality": {
+        "tier": "strong",
+        "selected": true,
+        "capability_score": 32.6,
+        "intelligence": 32.6,
+        "coding": null,
+        "agentic": null,
+        "score_source": "inherited",
+        "score_inherited_from": "deepseek-v4-1-flash-1017",
+        "reasons_not_selected": []
+      },
+      "performance": {
+        "tokens_per_second": 209.91,
+        "time_to_first_token_seconds": 0.76
+      },
+      "agent_readiness": {
+        "status": true,
+        "min_context_required": 65536,
+        "reasons": [],
+        "models_dev": {
+          "matched": true,
+          "id": "deepseek/deepseek-v4.1-flash",
+          "name": "DeepSeek V4.1 Flash",
+          "context": 1000000,
+          "tool_call": true,
+          "reasoning": true,
+          "attachment": true,
+          "structured_output": null,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "release_date": "2026-09-10",
+          "match_confidence": 1.0,
+          "match_method": "exact"
+        }
+      },
+      "free_routes": [
+        {
+          "provider": "opencode",
+          "route_model": "deepseek-v4.1-flash-free",
+          "model_name": "DeepSeek V4.1 Flash Free",
+          "api_base": null,
+          "aliases": [
+            "deepseek-v4.1-flash"
+          ],
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false,
+          "match_confidence": 1.0,
+          "match_method": "exact",
+          "source": "opencode"
+        }
+      ],
+      "route_count": 1,
+      "best_route_match_confidence": 1.0,
+      "sources": {
+        "free_routes": [
+          "OpenCode provider catalogue (zero-priced)"
+        ],
+        "benchmarks": "Artificial Analysis",
+        "capabilities": "models.dev"
+      }
+    },
+    {
+      "model": {
+        "aa_id": "e2ed7885-d46b-4da7-a873-f12f88af0081",
+        "aa_slug": "inkling-2-small",
+        "name": "Inkling 2 Small",
+        "creator": "Thinking Machines",
+        "release_date": "2026-11-05"
+      },
+      "quality": {
+        "tier": "strong",
+        "selected": true,
+        "capability_score": 30.6,
+        "intelligence": 30.6,
+        "coding": null,
+        "agentic": null,
+        "score_source": "own",
+        "score_inherited_from": null,
+        "reasons_not_selected": []
+      },
+      "performance": {
+        "tokens_per_second": 78.2,
+        "time_to_first_token_seconds": 2.46
+      },
+      "agent_readiness": {
+        "status": true,
+        "min_context_required": 65536,
+        "reasons": [],
+        "models_dev": {
+          "matched": true,
+          "id": "thinkingmachines/inkling-2-small",
+          "name": "Inkling 2 Small",
+          "context": 1048576,
+          "tool_call": true,
+          "reasoning": true,
+          "attachment": true,
+          "structured_output": null,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "release_date": "2026-11-05",
+          "match_confidence": 1.0,
+          "match_method": "exact"
+        }
+      },
+      "free_routes": [
+        {
+          "provider": "opencode",
+          "route_model": "inkling-2-small-free",
+          "model_name": "Inkling 2 Small Free",
+          "api_base": null,
+          "aliases": [
+            "inkling-2-small"
+          ],
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false,
+          "match_confidence": 1.0,
+          "match_method": "exact",
+          "source": "opencode"
+        },
+        {
+          "provider": "openrouter",
+          "route_model": "thinkingmachines/inkling-2-small:free",
+          "model_name": "Thinking Machines: Inkling 2 Small (free)",
+          "api_base": null,
+          "aliases": [
+            "thinkingmachines/inkling-2-small",
+            "inkling-2-small",
+            "Thinking Machines: Inkling 2 Small (free)",
+            "Inkling 2 Small (free)"
+          ],
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false,
+          "match_confidence": 1.0,
+          "match_method": "exact",
+          "source": "openrouter"
+        }
+      ],
+      "route_count": 2,
+      "best_route_match_confidence": 1.0,
+      "sources": {
+        "free_routes": [
+          "OpenCode provider catalogue (zero-priced)",
+          "OpenRouter public models API (zero-priced)"
+        ],
+        "benchmarks": "Artificial Analysis",
+        "capabilities": "models.dev"
+      }
+    },
+    {
+      "model": {
+        "aa_id": "d49c8680-e29b-400e-9511-824f7ddebe07",
+        "aa_slug": "minimax-m3-1-flash",
+        "name": "MiniMax-M3.1-Flash",
+        "creator": "MiniMax",
+        "release_date": "2026-10-19"
+      },
+      "quality": {
+        "tier": "strong",
+        "selected": true,
+        "capability_score": 29.1,
+        "intelligence": 29.1,
+        "coding": null,
+        "agentic": null,
+        "score_source": "own",
+        "score_inherited_from": null,
+        "reasons_not_selected": []
+      },
+      "performance": {
+        "tokens_per_second": 148.23,
+        "time_to_first_token_seconds": 1.13
+      },
+      "agent_readiness": {
+        "status": true,
+        "min_context_required": 65536,
+        "reasons": [],
+        "models_dev": {
+          "matched": true,
+          "id": "minimax/MiniMax-M3.1-Flash",
+          "name": "MiniMax-M3.1-Flash",
+          "context": 1000000,
+          "tool_call": true,
+          "reasoning": true,
+          "attachment": true,
+          "structured_output": null,
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "video"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "release_date": "2026-10-19",
+          "match_confidence": 1.0,
+          "match_method": "exact"
+        }
+      },
+      "free_routes": [
+        {
+          "provider": "opencode",
+          "route_model": "minimax-m3.1-flash-free",
+          "model_name": "MiniMax M3.1 Flash Free",
+          "api_base": null,
+          "aliases": [
+            "minimax-m3.1-flash"
+          ],
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false,
+          "match_confidence": 1.0,
+          "match_method": "exact",
+          "source": "opencode"
+        }
+      ],
+      "route_count": 1,
+      "best_route_match_confidence": 1.0,
+      "sources": {
+        "free_routes": [
+          "OpenCode provider catalogue (zero-priced)"
+        ],
+        "benchmarks": "Artificial Analysis",
+        "capabilities": "models.dev"
+      }
+    },
+    {
+      "model": {
+        "aa_id": "19496b81-9f41-4214-a77a-1df803b3c5ae",
+        "aa_slug": "glm-5-3-flash",
+        "name": "GLM-5.3-Flash",
+        "creator": "Z AI",
+        "release_date": "2026-08-26"
+      },
+      "quality": {
+        "tier": "strong",
+        "selected": true,
+        "capability_score": 27.8,
+        "intelligence": 27.8,
+        "coding": null,
+        "agentic": null,
+        "score_source": "own",
+        "score_inherited_from": null,
+        "reasons_not_selected": []
+      },
+      "performance": {
+        "tokens_per_second": 55.97,
+        "time_to_first_token_seconds": 1.74
+      },
+      "agent_readiness": {
+        "status": true,
+        "min_context_required": 65536,
+        "reasons": [],
+        "models_dev": {
+          "matched": true,
+          "id": "zhipuai/glm-5.3-flash",
+          "name": "GLM-5.3-Flash",
+          "context": 1000000,
+          "tool_call": true,
+          "reasoning": true,
+          "attachment": true,
+          "structured_output": null,
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "video",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "release_date": "2026-08-26",
+          "match_confidence": 1.0,
+          "match_method": "exact"
+        }
+      },
+      "free_routes": [
+        {
+          "provider": "opencode",
+          "route_model": "glm-5.3-flash-free",
+          "model_name": "GLM-5.3-Flash Free",
+          "api_base": null,
+          "aliases": [
+            "glm-5.3-flash"
+          ],
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false,
+          "match_confidence": 1.0,
+          "match_method": "exact",
+          "source": "opencode"
+        }
+      ],
+      "route_count": 1,
+      "best_route_match_confidence": 1.0,
+      "sources": {
+        "free_routes": [
+          "OpenCode provider catalogue (zero-priced)"
+        ],
+        "benchmarks": "Artificial Analysis",
+        "capabilities": "models.dev"
+      }
+    },
+    {
+      "model": {
+        "aa_id": "127de816-57d3-4037-8484-480a613cd413",
+        "aa_slug": "mimo-v2-6-flash",
+        "name": "MiMo-V2.6-Flash",
+        "creator": "Xiaomi",
+        "release_date": "2026-09-21"
+      },
+      "quality": {
+        "tier": "strong",
+        "selected": true,
+        "capability_score": 26.7,
+        "intelligence": 26.7,
+        "coding": null,
+        "agentic": null,
+        "score_source": "own",
+        "score_inherited_from": null,
+        "reasons_not_selected": []
+      },
+      "performance": {
+        "tokens_per_second": 36.82,
+        "time_to_first_token_seconds": 2.85
+      },
+      "agent_readiness": {
+        "status": true,
+        "min_context_required": 65536,
+        "reasons": [],
+        "models_dev": {
+          "matched": true,
+          "id": "xiaomi/mimo-v2.6-flash",
+          "name": "MiMo-V2.6-Flash",
+          "context": 1048576,
+          "tool_call": true,
+          "reasoning": true,
+          "attachment": true,
+          "structured_output": null,
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "audio",
+              "video"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "release_date": "2026-09-22",
+          "match_confidence": 1.0,
+          "match_method": "exact"
+        }
+      },
+      "free_routes": [
+        {
+          "provider": "opencode",
+          "route_model": "mimo-v2.6-flash-free",
+          "model_name": "MiMo-V2.6-Flash Free",
+          "api_base": null,
+          "aliases": [
+            "mimo-v2.6-flash"
+          ],
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false,
+          "match_confidence": 1.0,
+          "match_method": "exact",
+          "source": "opencode"
+        }
+      ],
+      "route_count": 1,
+      "best_route_match_confidence": 1.0,
+      "sources": {
+        "free_routes": [
+          "OpenCode provider catalogue (zero-priced)"
+        ],
+        "benchmarks": "Artificial Analysis",
+        "capabilities": "models.dev"
+      }
+    }
+  ]
+}

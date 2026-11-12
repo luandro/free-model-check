@@ -1,0 +1,95 @@
+{
+  "summary": {
+    "artificial_analysis_index_version": 5.0,
+    "aa_models_considered": 734,
+    "free_underlying_models_matched": 13,
+    "selected_underlying_models": 5,
+    "intelligence_floor": 25.0,
+    "intelligence_floor_source": "--min-intelligence",
+    "adaptive_filter_enabled": false,
+    "thresholds": {
+      "absolute": {
+        "min_intelligence": 25.0,
+        "min_coding_or_agentic": 25.0
+      },
+      "adaptive": {
+        "intelligence_percentile": null,
+        "intelligence_cutoff": null,
+        "specialized_percentile": null,
+        "specialized_cutoff": null
+      },
+      "useful_tier": {
+        "min_intelligence": 22.0,
+        "min_coding_or_agentic": 20.0,
+        "included_in_output": false
+      },
+      "agent_ready": {
+        "required_for_selection": false,
+        "min_context": 65536,
+        "tool_calling_required": true
+      }
+    },
+    "benchmark_coverage": {
+      "aa_catalogue_models_with_intelligence_score": 121,
+      "aa_catalogue_models_with_coding_or_agentic_score": 0,
+      "coding_agentic_available": false,
+      "free_candidates_scored": 10,
+      "free_candidates_scored_own": 9,
+      "free_candidates_scored_inherited": 1,
+      "free_candidates_unscored": 3,
+      "adaptive_pool": "free candidates with a score"
+    },
+    "stealthmark": {
+      "models_gathered": 54,
+      "routes_matched": 0,
+      "models_promoted": 0,
+      "selected_models": 0,
+      "models_below_floor": 0,
+      "models_skipped_not_agent_ready": 0,
+      "models_skipped_not_chat": 0,
+      "min_intelligence": 25.0,
+      "scoring": "StealthMark General as an intelligence proxy; no AA coding score",
+      "source_url": "https://stealthmodels.com/data/v1/benchmarks-page.json",
+      "enabled": true,
+      "feed_error": null,
+      "models_selected": 0,
+      "routes_selected": 0
+    },
+    "generated_unix": 1794441654,
+    "runtime_seconds": 29.821,
+    "sources_requested": "all",
+    "routes_by_source": {
+      "f24": 71,
+      "openrouter": 14,
+      "opencode": 12
+    },
+    "source_errors": [],
+    "free_routes_seen": 26,
+    "free_routes_unmatched_to_aa": 10,
+    "routes_by_verification": {
+      "zero-priced": 26,
+      "free-tier": 0,
+      "mirror-listed": 0
+    },
+    "free_tier_routes_skipped": 71,
+    "mirror_routes_skipped": 0,
+    "include_free_tier": false,
+    "include_unscored": true,
+    "unbenchmarked_models": 11,
+    "unbenchmarked_routes": 11,
+    "stealthmark_models": 0,
+    "stealthmark_routes": 0,
+    "stealthmark_models_gathered": 54,
+    "stealthmark_feed_error": null,
+    "models_dev_entries_seen": 613,
+    "models_dev_error": null,
+    "attribution": {
+      "Artificial Analysis": "https://artificialanalysis.ai/",
+      "F24 SALES": "https://www.f24-sales.com/",
+      "OpenRouter": "https://openrouter.ai/",
+      "models.dev": "https://models.dev/",
+      "StealthMark": "https://stealthmodels.com/"
+    }
+  },
+  "models": []
+}
