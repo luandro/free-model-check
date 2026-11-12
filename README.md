@@ -79,6 +79,11 @@ The workflow requires the `AA_API_KEY` repository secret and GitHub Pages set to
 --include-unscored` so the page can show both AA-scored and unscored free models
 in separate sections.
 
+If Artificial Analysis rate-limits a run (HTTP 429), the workflow deploys the
+last known good report from `site/data/` instead of publishing an empty page.
+Those three files are the only generated artifacts tracked in git; the root-level
+`free_models*.json` and `free_models*.csv` reports stay ignored.
+
 ## Configuration
 
 | Flag | Default | Purpose |
