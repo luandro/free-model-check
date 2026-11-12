@@ -1,8 +1,8 @@
 {
   "summary": {
     "artificial_analysis_index_version": 5.0,
-    "aa_models_considered": 734,
-    "free_underlying_models_matched": 13,
+    "aa_models_considered": 739,
+    "free_underlying_models_matched": 14,
     "selected_underlying_models": 5,
     "intelligence_floor": 25.0,
     "intelligence_floor_source": "--min-intelligence",
@@ -30,11 +30,11 @@
       }
     },
     "benchmark_coverage": {
-      "aa_catalogue_models_with_intelligence_score": 121,
+      "aa_catalogue_models_with_intelligence_score": 126,
       "aa_catalogue_models_with_coding_or_agentic_score": 0,
       "coding_agentic_available": false,
-      "free_candidates_scored": 10,
-      "free_candidates_scored_own": 9,
+      "free_candidates_scored": 11,
+      "free_candidates_scored_own": 10,
       "free_candidates_scored_inherited": 1,
       "free_candidates_unscored": 3,
       "adaptive_pool": "free candidates with a score"
@@ -55,33 +55,33 @@
       "models_selected": 0,
       "routes_selected": 0
     },
-    "generated_unix": 1794441654,
-    "runtime_seconds": 29.821,
+    "generated_unix": 1794522653,
+    "runtime_seconds": 41.109,
     "sources_requested": "all",
     "routes_by_source": {
-      "f24": 71,
-      "openrouter": 14,
+      "f24": 74,
+      "openrouter": 16,
       "opencode": 12
     },
     "source_errors": [],
-    "free_routes_seen": 26,
-    "free_routes_unmatched_to_aa": 10,
+    "free_routes_seen": 28,
+    "free_routes_unmatched_to_aa": 11,
     "routes_by_verification": {
-      "zero-priced": 26,
+      "zero-priced": 28,
       "free-tier": 0,
       "mirror-listed": 0
     },
-    "free_tier_routes_skipped": 71,
+    "free_tier_routes_skipped": 74,
     "mirror_routes_skipped": 0,
     "include_free_tier": false,
     "include_unscored": true,
-    "unbenchmarked_models": 11,
-    "unbenchmarked_routes": 11,
+    "unbenchmarked_models": 12,
+    "unbenchmarked_routes": 12,
     "stealthmark_models": 0,
     "stealthmark_routes": 0,
     "stealthmark_models_gathered": 54,
     "stealthmark_feed_error": null,
-    "models_dev_entries_seen": 613,
+    "models_dev_entries_seen": 614,
     "models_dev_error": null,
     "attribution": {
       "Artificial Analysis": "https://artificialanalysis.ai/",

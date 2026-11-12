@@ -174,4 +174,4 @@ submitting.
 
 ## License
 
-No license is currently specified.
+MIT. See [LICENSE](LICENSE).

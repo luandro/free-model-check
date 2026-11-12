@@ -1,0 +1,13 @@
+{
+  "name": "Free Model Check",
+  "short_name": "Free Models",
+  "description": "A register of free LLM routes, rebuilt from the provider feeds every six hours.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#a9b0b4",
+  "theme_color": "#1d2226",
+  "icons": [
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

@@ -65,7 +65,9 @@ jobs:
             cp site/data/free_models_stealthmark.json _site/data/free_models_stealthmark.json
             cp site/data/free_models_unbenchmarked.json _site/data/free_models_unbenchmarked.json
           fi
-          cp -R site/index.html site/styles.css site/app.js _site/
+          cp site/index.html site/styles.css site/app.js _site/
+          cp site/favicon.svg site/favicon.ico site/apple-touch-icon.png site/icon-512.png _site/
+          cp site/manifest.webmanifest _site/
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
