@@ -36,7 +36,7 @@ jobs:
       - name: Build free model report
         env:
           AA_API_KEY: ${{ secrets.AA_API_KEY }}
-        run: python free_model_filter.py --include-unscored
+        run: python free_model_filter.py --include-unscored --aa-retries 6 --aa-retry-delay 10
 
       - name: Prepare Pages site
         run: |
