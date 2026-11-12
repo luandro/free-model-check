@@ -36,9 +36,29 @@ jobs:
       - name: Build free model report
         env:
           AA_API_KEY: ${{ secrets.AA_API_KEY }}
-        run: python free_model_filter.py --include-unscored --aa-retries 6 --aa-retry-delay 10
+        run: |
+          if python free_model_filter.py --include-unscored 2>&1 | tee /tmp/build.log; then
+            exit 0
+          fi
+          if grep -qE "HTTP 429|Rate limit exceeded" /tmp/build.log; then
+            echo "::warning::Artificial Analysis rate limit reached; keeping the previous Pages deployment."
+            echo "skip_deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          exit 1
+        id: build
+
+      - name: Check whether a new report was produced
+        id: gate
+        run: |
+          if [ "${{ steps.build.outputs.skip_deploy }}" = "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Prepare Pages site
+        if: steps.gate.outputs.skip != 'true'
         run: |
           mkdir -p _site/data
           cp free_models.json _site/data/free_models.json
@@ -47,13 +67,16 @@ jobs:
           cp -R site/. _site/
 
       - name: Configure Pages
+        if: steps.gate.outputs.skip != 'true'
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
+        if: steps.gate.outputs.skip != 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
 
       - name: Deploy to GitHub Pages
+        if: steps.gate.outputs.skip != 'true'
         id: deployment
         uses: actions/deploy-pages@v4
