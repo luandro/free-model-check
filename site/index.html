@@ -46,24 +46,48 @@
         </div>
       </div>
 
-      <dl class="figures" id="figures">
-        <div class="figure">
-          <dt>Models entered</dt>
-          <dd class="num" id="fig-models">n/a</dd>
+      <div class="hero-side">
+        <div class="sheet" aria-label="The first entries of this edition">
+          <div class="sheet-head">
+            <span class="sheet-title">First entries</span>
+            <span class="sheet-meta" id="sheet-edition">this edition</span>
+          </div>
+          <div class="table-wrap sheet-wrap">
+            <table class="reg reg-sheet" id="table-sheet">
+              <caption class="sr-only">The first three entries of the register</caption>
+              <thead>
+                <tr>
+                  <th class="col-rank" scope="col">No.</th>
+                  <th class="col-model" scope="col">Model</th>
+                  <th class="col-score" scope="col">Intel</th>
+                  <th class="col-routes" scope="col">Routes</th>
+                </tr>
+              </thead>
+              <tbody id="rows-sheet"></tbody>
+            </table>
+          </div>
+          <p class="sheet-foot">The full register sits below.</p>
         </div>
-        <div class="figure">
-          <dt>Free routes</dt>
-          <dd class="num" id="fig-routes">n/a</dd>
-        </div>
-        <div class="figure">
-          <dt>Intelligence floor</dt>
-          <dd class="num" id="fig-floor">n/a</dd>
-        </div>
-        <div class="figure">
-          <dt>AA models read</dt>
-          <dd class="num" id="fig-catalogue">n/a</dd>
-        </div>
-      </dl>
+
+        <dl class="figures" id="figures">
+          <div class="figure">
+            <dt>Models entered</dt>
+            <dd class="num" id="fig-models">n/a</dd>
+          </div>
+          <div class="figure">
+            <dt>Free routes</dt>
+            <dd class="num" id="fig-routes">n/a</dd>
+          </div>
+          <div class="figure">
+            <dt>Intelligence floor</dt>
+            <dd class="num" id="fig-floor">n/a</dd>
+          </div>
+          <div class="figure">
+            <dt>AA models read</dt>
+            <dd class="num" id="fig-catalogue">n/a</dd>
+          </div>
+        </dl>
+      </div>
     </div>
   </section>
 
@@ -71,29 +95,29 @@
     <div class="container">
       <div class="head-block">
         <h2>The register</h2>
-        <p class="lead">Ranked by capability score. Open a row to read the route ids and the price proof.</p>
+        <p class="lead">Ranked by score.</p>
       </div>
 
-      <div class="controls" role="search">
+      <div class="controls" role="search" aria-label="Filter the register">
         <label class="field">
-          <span class="field-label">Find a model</span>
-          <input id="search-input" type="search" placeholder="Name, maker or provider" autocomplete="off">
+          <span class="field-label">Find</span>
+          <input id="search-input" type="search" placeholder="Name or provider" autocomplete="off">
         </label>
         <label class="field">
           <span class="field-label">Provider</span>
           <select id="provider-filter">
-            <option value="all">Every provider</option>
+            <option value="all">All</option>
           </select>
         </label>
         <label class="field">
-          <span class="field-label">Order by</span>
+          <span class="field-label">Order</span>
           <select id="sort-select">
-            <option value="score">Capability, high first</option>
-            <option value="intelligence">Intelligence, high first</option>
-            <option value="name">Name, A to Z</option>
-            <option value="context">Context, largest first</option>
-            <option value="routes">Route count, most first</option>
-            <option value="release">Release date, newest first</option>
+            <option value="score">Score</option>
+            <option value="intelligence">Intel</option>
+            <option value="name">Name</option>
+            <option value="context">Context</option>
+            <option value="routes">Routes</option>
+            <option value="release">Newest</option>
           </select>
         </label>
         <button class="btn btn-quiet" id="clear-search" type="button" hidden>Clear</button>
@@ -115,13 +139,13 @@
               <tr>
                 <th class="col-rank" scope="col">No.</th>
                 <th class="col-model" scope="col">Model</th>
-                <th class="col-score" scope="col">Capability</th>
+                <th class="col-score" scope="col">Score</th>
                 <th class="col-score" scope="col">Intel</th>
                 <th class="col-score" scope="col">Code</th>
                 <th class="col-score" scope="col">Agent</th>
                 <th class="col-routes" scope="col">Routes</th>
-                <th class="col-ready" scope="col">Agent ready</th>
-                <th class="col-provider" scope="col">Served by</th>
+                <th class="col-ready" scope="col">Ready</th>
+                <th class="col-provider" scope="col">Provider</th>
               </tr>
             </thead>
             <tbody id="rows-aa"></tbody>
@@ -141,7 +165,7 @@
                 <th class="col-score" scope="col">Visual</th>
                 <th class="col-score" scope="col">Overall</th>
                 <th class="col-routes" scope="col">Scenes</th>
-                <th class="col-provider" scope="col">Served by</th>
+                <th class="col-provider" scope="col">Provider</th>
               </tr>
             </thead>
             <tbody id="rows-stealthmark"></tbody>
@@ -159,8 +183,8 @@
                 <th class="col-rank" scope="col">No.</th>
                 <th class="col-model" scope="col">Model</th>
                 <th class="col-ready" scope="col">Context</th>
-                <th class="col-ready" scope="col">Agent ready</th>
-                <th class="col-provider" scope="col">Served by</th>
+                <th class="col-ready" scope="col">Ready</th>
+                <th class="col-provider" scope="col">Provider</th>
                 <th class="col-routes" scope="col">Status</th>
               </tr>
             </thead>
@@ -180,25 +204,25 @@
     <div class="container">
       <div class="head-block">
         <h2>How a route earns its entry</h2>
-        <p class="lead">Three claims about price, one about quality. A route has to satisfy the first three before the fourth is even read.</p>
+        <p class="lead">Three claims about price, one about quality.</p>
       </div>
 
       <div class="rules">
         <article class="rule">
           <h3><span class="rule-mark" aria-hidden="true">i</span><span class="rule-text">Zero priced, dimension by dimension</span></h3>
-          <p>The provider publishes a zero for every billable field: input, output, cache reads and writes, requests, images, audio and long context tiers. A missing pricing object is not a zero.</p>
+          <p>A zero for every billable field. A missing pricing object is not a zero.</p>
         </article>
         <article class="rule">
           <h3><span class="rule-mark" aria-hidden="true">ii</span><span class="rule-text">Read as decimals, never floats</span></h3>
-          <p>Prices are parsed as decimals so a published one times ten to the minus nine hundred ninety ninth cannot round down to zero and pass as free.</p>
+          <p>Prices are parsed as decimals, so a tiny published price cannot round down to zero.</p>
         </article>
         <article class="rule">
           <h3><span class="rule-mark" aria-hidden="true">iii</span><span class="rule-text">Claims that are not proof</span></h3>
-          <p>A scanner that asserts a free tier, or a third party mirror that lags the provider, is marked with a dagger and left out unless you ask for it.</p>
+          <p>A scanner claim or a lagging mirror is marked with a dagger and left out by default.</p>
         </article>
         <article class="rule">
           <h3><span class="rule-mark" aria-hidden="true">iv</span><span class="rule-text">The intelligence floor</span></h3>
-          <p>Artificial Analysis scores the model, not the route. A model below the floor is hidden, and a model with no score at all is kept out of the register unless you ask for it.</p>
+          <p>Artificial Analysis scores the model, not the route. A model below the floor is hidden.</p>
         </article>
       </div>
     </div>
@@ -208,16 +232,16 @@
     <div class="container">
       <div class="head-block">
         <h2>Where the figures come from</h2>
-        <p class="lead">Six feeds, read fresh on every run. Nothing on this page is estimated or filled in by hand.</p>
+        <p class="lead">Six feeds, read fresh on every run.</p>
       </div>
 
       <ul class="source-list">
-        <li><span class="source-name">Artificial Analysis</span><span class="source-role">Intelligence, coding and agentic indices</span><a class="source-link" href="https://artificialanalysis.ai/">artificialanalysis.ai</a></li>
-        <li><span class="source-name">OpenRouter</span><span class="source-role">Zero priced routes and their price objects</span><a class="source-link" href="https://openrouter.ai/">openrouter.ai</a></li>
-        <li><span class="source-name">OpenCode Zen</span><span class="source-role">Provider catalogue and cost tree</span><a class="source-link" href="https://opencode.ai/">opencode.ai</a></li>
-        <li><span class="source-name">F24 Sales</span><span class="source-role">LiteLLM free tier map, excluded by default</span><a class="source-link" href="https://www.f24-sales.com/">f24-sales.com</a></li>
-        <li><span class="source-name">models.dev</span><span class="source-role">Context, tool calling and reasoning</span><a class="source-link" href="https://models.dev/">models.dev</a></li>
-        <li><span class="source-name">StealthMark</span><span class="source-role">Proxy scores for stealth releases</span><a class="source-link" href="https://stealthmodels.com/">stealthmodels.com</a></li>
+        <li><span class="source-name">Artificial Analysis</span><span class="source-role">Scores</span><a class="source-link" href="https://artificialanalysis.ai/">artificialanalysis.ai</a></li>
+        <li><span class="source-name">OpenRouter</span><span class="source-role">Routes, prices</span><a class="source-link" href="https://openrouter.ai/">openrouter.ai</a></li>
+        <li><span class="source-name">OpenCode Zen</span><span class="source-role">Catalogue</span><a class="source-link" href="https://opencode.ai/">opencode.ai</a></li>
+        <li><span class="source-name">F24 Sales</span><span class="source-role">Free tier map</span><a class="source-link" href="https://www.f24-sales.com/">f24-sales.com</a></li>
+        <li><span class="source-name">models.dev</span><span class="source-role">Capabilities</span><a class="source-link" href="https://models.dev/">models.dev</a></li>
+        <li><span class="source-name">StealthMark</span><span class="source-role">Proxy</span><a class="source-link" href="https://stealthmodels.com/">stealthmodels.com</a></li>
       </ul>
     </div>
   </section>

@@ -198,9 +198,7 @@
   function modelCell(record, href) {
     var model = record.model || {};
     var name = text(model.name) || 'Untitled model';
-    var maker = text(model.creator) || text(model.stealthmark_id) || text(model.models_dev_id);
     var inner = '<span class="model-cell">' + esc(name) + '</span>';
-    if (maker) inner += '<span class="model-maker">' + esc(maker) + '</span>';
     if (href) {
       return '<a class="model-link" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>';
     }
@@ -243,8 +241,8 @@
       '<ul class="route-list">' + routeRows(record) + '</ul>' +
       '</div></td></tr>';
     var toggle = '<button class="row-toggle" type="button" data-toggle="' + esc(key) + '" aria-expanded="' +
-      (open ? 'true' : 'false') + '" aria-controls="detail-' + esc(key) + '">' +
-      (open ? 'Hide routes ' : 'Show routes ') + '(' + routes.length + ')</button>';
+      (open ? 'true' : 'false') + '" aria-controls="detail-' + esc(key) + '" aria-label="' +
+      (open ? 'Hide' : 'Show') + ' the ' + routes.length + ' route ids">Open ' + routes.length + '</button>';
     return { toggle: toggle, detail: detail };
   }
 
@@ -334,7 +332,7 @@
     if (state.provider !== 'all') notes.push('served by ' + state.provider);
     if (state.query) notes.push('matching “' + state.query + '”');
     document.getElementById('results-status').textContent =
-      shown + ' of ' + total + ' entries' + (notes.length ? ', ' + notes.join(', ') : '') + '.';
+      shown + ' of ' + total + (notes.length ? ', ' + notes.join(', ') : '') + '.';
   }
 
   function emptyLine(count) {
@@ -393,6 +391,18 @@
       ? 'n/a'
       : String(summary.intelligence_floor);
     document.getElementById('fig-catalogue').textContent = whole(summary.aa_models_considered);
+    document.getElementById('sheet-edition').textContent = 'AA index ' + (index === null ? 'n/a' : index.toFixed(1));
+  }
+
+  function sheetRow(record, index) {
+    var model = record.model || {};
+    var quality = record.quality || {};
+    return '<tr>' +
+      '<td class="col-rank">' + (index + 1) + '</td>' +
+      '<td class="col-model" data-label="Model">' + modelCell(record) + '</td>' +
+      '<td class="col-score" data-label="Intel">' + oneDecimal(quality.intelligence) + '</td>' +
+      '<td class="col-routes" data-label="Routes">' + (record.route_count || 0) + '</td>' +
+      '</tr>';
   }
 
   function read(key, url) {
@@ -435,6 +445,13 @@
     document.getElementById('tab-stealthmark').hidden = !hasStealth;
     document.getElementById('tab-unscored').hidden = !hasUnscored;
     document.getElementById('tab-aa').hidden = !state.aa.length && !hasStealth && !hasUnscored;
+    var sheet = document.getElementById('rows-sheet');
+    if (sheet) {
+      var top = state.aa.slice().sort(sorter('score')).slice(0, 5);
+      sheet.innerHTML = top.length
+        ? top.map(sheetRow).join('')
+        : '<tr><td colspan="4">' + esc('The sheet fills when the register is read.') + '</td></tr>';
+    }
     fillProviders();
     paint();
     if (!state.summary.generated_unix) {
@@ -488,8 +505,8 @@
       state.open[key] = !state.open[key];
       if (row) row.hidden = !state.open[key];
       toggle.setAttribute('aria-expanded', state.open[key] ? 'true' : 'false');
-      toggle.textContent = (state.open[key] ? 'Hide routes ' : 'Show routes ') +
-        '(' + (row ? row.querySelectorAll('.route-list li').length : 0) + ')';
+      var count = row ? row.querySelectorAll('.route-list li').length : 0;
+      toggle.textContent = (state.open[key] ? 'Close ' : 'Open ') + count;
     });
 
     var root = document.documentElement;
