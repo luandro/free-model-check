@@ -1387,20 +1387,44 @@ def parse_llmstats_models(html: str) -> list[dict[str, Any]]:
     return rows
 
 
-def fetch_llmstats(url: str) -> tuple[list[dict[str, Any]], str | None]:
+def fetch_llmstats(url: str, attempts: int = 3) -> tuple[list[dict[str, Any]], str | None]:
     """Fetch the llm-stats leaderboard.
+
+    The leaderboard is rendered per request and its row set shifts between
+    fetches: a model can be missing, or present with a null index, for one
+    response and back the next. Three attempts are merged so a passing row is
+    kept once it is seen, and a row with a score beats the same row without one.
 
     Best-effort enrichment: a fetch failure must not break the AA-scored
     shortlist, so the error is returned for the summary instead of raising.
     """
-    try:
-        html = http_get_bytes(url, headers={"Accept": "text/html"}).decode("utf-8", "replace")
-    except Exception as exc:  # noqa: BLE001 - best-effort enrichment
-        return [], str(exc)
-    rows = parse_llmstats_models(html)
-    if not rows:
-        return [], "llm-stats page was readable but no model rows were recognized"
-    return rows, None
+    merged: dict[str, dict[str, Any]] = {}
+    last_error: str | None = None
+
+    for attempt in range(max(1, attempts)):
+        try:
+            html = http_get_bytes(url, headers={"Accept": "text/html"}).decode("utf-8", "replace")
+        except Exception as exc:  # noqa: BLE001 - best-effort enrichment
+            last_error = str(exc)
+            continue
+        rows = parse_llmstats_models(html)
+        if not rows:
+            last_error = "llm-stats page was readable but no model rows were recognized"
+            continue
+        last_error = None
+        for row in rows:
+            model_id = clean_text(row.get("model_id"))
+            if not model_id:
+                continue
+            held = merged.get(model_id)
+            if held is None or (held.get("index_general") is None and row.get("index_general") is not None):
+                merged[model_id] = row
+        if attempt + 1 < max(1, attempts):
+            time.sleep(2)
+
+    if not merged:
+        return [], last_error or "llm-stats returned no usable model rows"
+    return list(merged.values()), None
 
 
 def llmstats_entry(row: dict[str, Any]) -> dict[str, Any] | None:
