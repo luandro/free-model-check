@@ -101,6 +101,9 @@ checked against the Hallmark gates (Almanac theme) and lints clean.
 | `--require-agent-ready` | off | Require tool calling and a minimum context. |
 | `--min-context` | `65536` | Context required for agent-readiness. |
 | `--sort-by` | `score` | `score`, `coding`, `intelligence`, or `agentic`. |
+| `--min-published` | `0` | Floor for the llm-stats published composite. Separate from `--min-intelligence`. |
+| `--llmstats-match-threshold` | `0.82` | Minimum route to llm-stats model match confidence. |
+| `--skip-llmstats` | off | Do not fetch llm-stats. |
 | `--all` | off | Disable quality floors and list every AA-scored free model. |
 
 ## Output
@@ -112,6 +115,7 @@ gitignored.
 |---|---|
 | `free_models.json` / `.csv` | Selected AA-scored models and their free routes. |
 | `free_models_stealthmark.json` / `.csv` | Free routes scored by StealthMark where AA has no entry. |
+| `free_models_published.json` / `.csv` | Free routes with an llm-stats published composite and no AA or StealthMark score. |
 | `free_models_unbenchmarked.json` / `.csv` | Free, agent-ready models with no score; populated with `--include-unscored`. |
 | `free_models_diagnostics.json` | AA-matched models rejected by quality or readiness gates. |
 | `free_models_unmatched.json` | Free routes not confidently matched to AA. |
@@ -145,6 +149,29 @@ AA does not list. StealthMark results are kept in a separate output and console
 section, are labelled `stealthmark-proxy`, never override an AA score, and reject
 partial runs.
 
+## Published composite
+
+llm-stats.com publishes one composite score built from ranked benchmark
+evidence, with per-benchmark provenance. It is a **different scale** from the AA
+intelligence index — over the models present in both it runs roughly 10 to 18
+points higher — so it is never written into the AA columns and never compared with
+`--min-intelligence`.
+
+It fills the gap AA leaves: a model released days ago has no AA entry yet, and its
+maker's own benchmark table is the only published evidence. Those models are
+listed in their own section, labelled `published-composite`, with the scale and
+the provider-reported caveat shown. `--min-published` is a separate floor for
+them, and it defaults to `0` because the section is an index, not a shortlist.
+
+Lane order is fixed: AA claims a model first, then StealthMark, then llm-stats.
+A route never appears in two lanes.
+
+| Source | Scale | Measures | Covers ERNIE 5.5 Flash? |
+|---|---|---|---|
+| Artificial Analysis | intelligence index, 0–100 | independent composite | not yet |
+| StealthMark | General, 0–100 | visual and planning, anonymous runs | no |
+| llm-stats | composite, 0–100, relative | ranked benchmark evidence | yes, 52.3 |
+
 ## Development
 
 ```bash
@@ -166,6 +193,7 @@ is sent only to the Artificial Analysis API. Never commit `.env` or a key.
 - F24 SALES: https://www.f24-sales.com/
 - models.dev: https://models.dev/
 - StealthMark: https://stealthmodels.com/
+- llm-stats: https://llm-stats.com/ (methodology: https://llm-stats.com/methodology/llm-stats-score)
 
 ## Contributing
 

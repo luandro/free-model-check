@@ -126,6 +126,7 @@
       <div class="tabs" role="tablist" aria-label="Parts of the register">
         <button class="tab" type="button" role="tab" id="tab-aa" data-section="aa" aria-selected="true" aria-controls="section-aa">Scored <span class="tab-n" id="count-aa">0</span></button>
         <button class="tab" type="button" role="tab" id="tab-stealthmark" data-section="stealthmark" aria-selected="false" aria-controls="section-stealthmark" hidden>StealthMark proxy <span class="tab-n" id="count-stealthmark">0</span></button>
+        <button class="tab" type="button" role="tab" id="tab-published" data-section="published" aria-selected="false" aria-controls="section-published" hidden>Composite <span class="tab-n" id="count-published">0</span></button>
         <button class="tab" type="button" role="tab" id="tab-unscored" data-section="unscored" aria-selected="false" aria-controls="section-unscored" hidden>Uncertified <span class="tab-n" id="count-unscored">0</span></button>
       </div>
 
@@ -172,6 +173,28 @@
           </table>
         </div>
         <p class="note">StealthMark grades visual SVG generation and planning games. It is not a coding benchmark, so a score here is a proxy for intelligence and nothing else.</p>
+      </section>
+
+      <section class="part" id="section-published" aria-label="Models with a published composite" hidden>
+        <div class="table-wrap">
+          <table class="reg" id="table-published">
+            <caption class="sr-only">Free routes with an llm-stats published composite and no Artificial Analysis score</caption>
+            <thead>
+              <tr>
+                <th class="col-rank" scope="col">No.</th>
+                <th class="col-model" scope="col">Model</th>
+                <th class="col-score" scope="col">Comp</th>
+                <th class="col-score" scope="col">Code</th>
+                <th class="col-score" scope="col">Agent</th>
+                <th class="col-routes" scope="col">Routes</th>
+                <th class="col-ready" scope="col">Ready</th>
+                <th class="col-provider" scope="col">Provider</th>
+              </tr>
+            </thead>
+            <tbody id="rows-published"></tbody>
+          </table>
+        </div>
+        <p class="note">A different scale from the AA index, and never compared with it. Most rows are reported by the model&rsquo;s maker.</p>
       </section>
 
       <section class="part" id="section-unscored" aria-label="Models with no benchmark score" hidden>
@@ -232,7 +255,7 @@
     <div class="container">
       <div class="head-block">
         <h2>Where the figures come from</h2>
-        <p class="lead">Six feeds, read fresh on every run.</p>
+        <p class="lead">Seven feeds, read fresh on every run.</p>
       </div>
 
       <ul class="source-list">
@@ -242,6 +265,7 @@
         <li><span class="source-name">F24 Sales</span><span class="source-role">Free tier map</span><a class="source-link" href="https://www.f24-sales.com/">f24-sales.com</a></li>
         <li><span class="source-name">models.dev</span><span class="source-role">Capabilities</span><a class="source-link" href="https://models.dev/">models.dev</a></li>
         <li><span class="source-name">StealthMark</span><span class="source-role">Proxy</span><a class="source-link" href="https://stealthmodels.com/">stealthmodels.com</a></li>
+        <li><span class="source-name">llm-stats</span><span class="source-role">Composite</span><a class="source-link" href="https://llm-stats.com/">llm-stats.com</a></li>
       </ul>
     </div>
   </section>

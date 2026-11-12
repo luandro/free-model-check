@@ -55,8 +55,8 @@
       "models_selected": 0,
       "routes_selected": 0
     },
-    "generated_unix": 1794522653,
-    "runtime_seconds": 41.109,
+    "generated_unix": 1794526980,
+    "runtime_seconds": 44.618,
     "sources_requested": "all",
     "routes_by_source": {
       "f24": 74,
@@ -75,12 +75,17 @@
     "mirror_routes_skipped": 0,
     "include_free_tier": false,
     "include_unscored": true,
-    "unbenchmarked_models": 12,
-    "unbenchmarked_routes": 12,
+    "unbenchmarked_models": 8,
+    "unbenchmarked_routes": 8,
     "stealthmark_models": 0,
     "stealthmark_routes": 0,
     "stealthmark_models_gathered": 54,
     "stealthmark_feed_error": null,
+    "published_models": 4,
+    "published_routes": 4,
+    "published_models_gathered": 417,
+    "published_feed_error": null,
+    "published_min_score": 0.0,
     "models_dev_entries_seen": 614,
     "models_dev_error": null,
     "attribution": {
@@ -88,7 +93,24 @@
       "F24 SALES": "https://www.f24-sales.com/",
       "OpenRouter": "https://openrouter.ai/",
       "models.dev": "https://models.dev/",
-      "StealthMark": "https://stealthmodels.com/"
+      "StealthMark": "https://stealthmodels.com/",
+      "llm-stats": "https://llm-stats.com/methodology/llm-stats-score"
+    },
+    "published": {
+      "models_gathered": 417,
+      "routes_matched": 4,
+      "models_promoted": 4,
+      "selected_models": 4,
+      "models_below_floor": 0,
+      "models_skipped_not_agent_ready": 0,
+      "models_skipped_not_chat": 0,
+      "min_published": 0.0,
+      "scoring": "llm-stats composite as a published-evidence score; not an AA intelligence index",
+      "source_url": "https://llm-stats.com/leaderboards/llm-leaderboard",
+      "enabled": true,
+      "feed_error": null,
+      "models_selected": 4,
+      "routes_selected": 4
     }
   },
   "models": [
@@ -135,88 +157,6 @@
     },
     {
       "model": {
-        "name": "Baidu: ERNIE-5.5-Flash-Preview (free)",
-        "models_dev_id": "baidu/ernie-5.5-flash-preview:free",
-        "description": "ERNIE 5.5 Flash Preview is the latest foundation model in the ERNIE family, with comprehensive improvements in coding, agentic capabilities, knowledge work, and deep research. It has 280 billion total..."
-      },
-      "benchmark": {
-        "status": "no-aa-entry",
-        "aa_slug": null
-      },
-      "capabilities": {
-        "context": 1024000,
-        "tool_call": true,
-        "reasoning": true,
-        "release_date": "2026-11-10",
-        "agent_ready": true
-      },
-      "stealth": false,
-      "legacy": false,
-      "free_routes": [
-        {
-          "provider": "openrouter",
-          "route_model": "baidu/ernie-5.5-flash-preview:free",
-          "model_name": "Baidu: ERNIE-5.5-Flash-Preview (free)",
-          "api_base": null,
-          "source": "openrouter",
-          "source_label": "OpenRouter public models API (zero-priced)",
-          "verification": "zero-priced",
-          "verified_free": true,
-          "requires_provider_key": false,
-          "stale_mirror": false
-        }
-      ],
-      "route_count": 1,
-      "providers": [
-        "openrouter"
-      ],
-      "sources": [
-        "OpenRouter public models API (zero-priced)"
-      ]
-    },
-    {
-      "model": {
-        "name": "LiquidAI: LFM3-1.7B (free)",
-        "models_dev_id": "liquid/lfm-3-1.7b:free",
-        "description": "A compact 1.7B-parameter text model with a 256K-token context, post-trained for agents, tool calling, and structured outputs. It reasons before it answers. Prompts and outputs may be retained and used..."
-      },
-      "benchmark": {
-        "status": "no-aa-entry",
-        "aa_slug": null
-      },
-      "capabilities": {
-        "context": 262144,
-        "tool_call": true,
-        "reasoning": true,
-        "release_date": "2026-11-06",
-        "agent_ready": true
-      },
-      "stealth": false,
-      "legacy": false,
-      "free_routes": [
-        {
-          "provider": "openrouter",
-          "route_model": "liquid/lfm-3-1.7b:free",
-          "model_name": "LiquidAI: LFM3-1.7B (free)",
-          "api_base": null,
-          "source": "openrouter",
-          "source_label": "OpenRouter public models API (zero-priced)",
-          "verification": "zero-priced",
-          "verified_free": true,
-          "requires_provider_key": false,
-          "stale_mirror": false
-        }
-      ],
-      "route_count": 1,
-      "providers": [
-        "openrouter"
-      ],
-      "sources": [
-        "OpenRouter public models API (zero-priced)"
-      ]
-    },
-    {
-      "model": {
         "name": "LongCat 2.5 Free",
         "models_dev_id": "meituan/longcat-2.5",
         "description": "Meituan's multimodal reasoning model for long-horizon coding and agent tasks, with visual understanding and a 1M-token context window"
@@ -254,47 +194,6 @@
       ],
       "sources": [
         "OpenCode provider catalogue (zero-priced)"
-      ]
-    },
-    {
-      "model": {
-        "name": "Particle AI: Particle-1 (free)",
-        "models_dev_id": "particle-ai/particle-1:free",
-        "description": "Particle-1 is a token-efficient agentic coding model from Particle AI, post-trained on DeepSeek V4.1 Flash. It is suited for software engineering work such as terminal workflows, codebase changes, and data..."
-      },
-      "benchmark": {
-        "status": "no-aa-entry",
-        "aa_slug": null
-      },
-      "capabilities": {
-        "context": 1048576,
-        "tool_call": true,
-        "reasoning": true,
-        "release_date": "2026-10-28",
-        "agent_ready": true
-      },
-      "stealth": false,
-      "legacy": false,
-      "free_routes": [
-        {
-          "provider": "openrouter",
-          "route_model": "particle-ai/particle-1:free",
-          "model_name": "Particle AI: Particle-1 (free)",
-          "api_base": null,
-          "source": "openrouter",
-          "source_label": "OpenRouter public models API (zero-priced)",
-          "verification": "zero-priced",
-          "verified_free": true,
-          "requires_provider_key": false,
-          "stale_mirror": false
-        }
-      ],
-      "route_count": 1,
-      "providers": [
-        "openrouter"
-      ],
-      "sources": [
-        "OpenRouter public models API (zero-priced)"
       ]
     },
     {
@@ -444,47 +343,6 @@
           "provider": "openrouter",
           "route_model": "dots-studio/dots-3-note-preview:free",
           "model_name": "Dots Studio: Dots3-Note Preview (free)",
-          "api_base": null,
-          "source": "openrouter",
-          "source_label": "OpenRouter public models API (zero-priced)",
-          "verification": "zero-priced",
-          "verified_free": true,
-          "requires_provider_key": false,
-          "stale_mirror": false
-        }
-      ],
-      "route_count": 1,
-      "providers": [
-        "openrouter"
-      ],
-      "sources": [
-        "OpenRouter public models API (zero-priced)"
-      ]
-    },
-    {
-      "model": {
-        "name": "LiquidAI: LFM2.5-2.6B (free)",
-        "models_dev_id": "liquid/lfm-2.5-2.6b:free",
-        "description": "LFM2.5-2.6B is a compact reasoning model from Liquid AI. It is suited for agent workflows, data extraction, RAG, and long-context processing. Liquid advises against using it for agentic coding or..."
-      },
-      "benchmark": {
-        "status": "no-aa-entry",
-        "aa_slug": null
-      },
-      "capabilities": {
-        "context": 65536,
-        "tool_call": true,
-        "reasoning": true,
-        "release_date": "2026-08-11",
-        "agent_ready": true
-      },
-      "stealth": false,
-      "legacy": false,
-      "free_routes": [
-        {
-          "provider": "openrouter",
-          "route_model": "liquid/lfm-2.5-2.6b:free",
-          "model_name": "LiquidAI: LFM2.5-2.6B (free)",
           "api_base": null,
           "source": "openrouter",
           "source_label": "OpenRouter public models API (zero-priced)",

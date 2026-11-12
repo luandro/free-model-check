@@ -74,6 +74,7 @@ All files use `--output-prefix` (default `free_models`) and are gitignored:
 
 - `free_models.json` / `free_models.csv` — Selected AA-scored models and their free routes, ranked by `--sort-by` (`score`, `coding`, `intelligence`, or `agentic`).
 - `free_models_stealthmark.json` / `free_models_stealthmark.csv` — Free routes scored by StealthMark (`stealthmodels.com`) for models that have no AA entry.
+- `free_models_published.json` / `free_models_published.csv` — Free routes with an llm-stats published composite (`published-composite`) and no AA or StealthMark score.
 - `free_models_unbenchmarked.json` / `free_models_unbenchmarked.csv` — Free, agent-ready chat models with no AA or StealthMark score (populated when `--include-unscored` is set; stealth models sorted first, legacy models last).
 - `free_models_diagnostics.json` — AA-matched models rejected by the quality or agent-readiness gates, with `reasons_not_selected`.
 - `free_models_unmatched.json` — Free routes that did not match any AA model above `--match-threshold` (`0.82`).
@@ -88,5 +89,9 @@ All files use `--output-prefix` (default `free_models`) and are gitignored:
    - Uses StealthMark `General` (`0–100`) as an intelligence-shaped proxy (`score_source: "stealthmark-proxy"`). StealthMark evaluates visual-SVG generation and planning games, **not** coding.
    - **Never overrides AA**: Any model identity that matches AA is excluded from StealthMark selection.
    - **Completeness gate**: Partial runs (`countedResults != prompts`, `partial: true`, or non-empty `missingFamilies`) are rejected.
-3. **Free but unbenchmarked**:
-   - Lists text chat models confirmed agent-ready (`tool_call: true` and context >= `65536`) that lack both AA and StealthMark scores (`no AA entry` or `AA unscored`), only when `--include-unscored` is enabled.
+3. **Published composite (llm-stats section)**:
+   - Uses the llm-stats composite (`0–100`, relative ranking) as published evidence (`score_source: "published-composite"`). It is a **different scale** from the AA intelligence index and is never written into the AA columns.
+   - **Never overrides AA or StealthMark**: lane order is AA, then StealthMark, then llm-stats; a route appears in exactly one lane.
+   - **Separate floor**: `--min-published` (default `0`), independent of `--min-intelligence`.
+4. **Free but unbenchmarked**:
+   - Lists text chat models confirmed agent-ready (`tool_call: true` and context >= `65536`) that lack AA, StealthMark and llm-stats scores (`no AA entry` or `AA unscored`), only when `--include-unscored` is enabled.

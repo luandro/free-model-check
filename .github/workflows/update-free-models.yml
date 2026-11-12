@@ -59,10 +59,12 @@ jobs:
           if [ "${{ steps.build.outputs.source }}" = "fresh" ]; then
             cp free_models.json _site/data/free_models.json
             cp free_models_stealthmark.json _site/data/free_models_stealthmark.json
+            cp free_models_published.json _site/data/free_models_published.json
             cp free_models_unbenchmarked.json _site/data/free_models_unbenchmarked.json
           else
             cp site/data/free_models.json _site/data/free_models.json
             cp site/data/free_models_stealthmark.json _site/data/free_models_stealthmark.json
+            cp site/data/free_models_published.json _site/data/free_models_published.json
             cp site/data/free_models_unbenchmarked.json _site/data/free_models_unbenchmarked.json
           fi
           cp site/index.html site/styles.css site/app.js _site/

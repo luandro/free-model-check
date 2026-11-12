@@ -80,6 +80,15 @@ StealthMark proxy:
     Partial runs are rejected, and matching is alias-only, so a StealthMark id
     never overrides an AA score for a model AA already covers.
 
+Published composite (llm-stats):
+    llm-stats.com publishes one composite score built from ranked benchmark
+    evidence, with per-row provenance. It runs on its own scale, which sits well
+    above the AA intelligence index, so its value is never written into the AA
+    columns and never compared with --min-intelligence. Free routes AA has not
+    indexed and StealthMark does not score are listed in a third section,
+    labelled "published-composite", with the scale and the provider-reported
+    caveat shown. --min-published (default 0) is a separate floor for it.
+
 Requirements:
     Python 3.10+
     pip install pyyaml
@@ -105,6 +114,11 @@ Outputs by default:
                               # free routes StealthMark can score and AA does not
     free_models_stealthmark.csv
                               # one row per StealthMark-scored free route
+    free_models_published.json
+                              # free routes with an llm-stats published composite
+                              # and no AA or StealthMark score
+    free_models_published.csv
+                              # one row per published-composite free route
 
 Useful examples:
     # Use the absolute floors (adaptive percentiles are opt-in)
@@ -1099,7 +1113,7 @@ def group_stealthmark_routes(routes: list[dict[str, Any]]) -> dict[str, dict[str
     return grouped
 
 
-def _stealthmark_free_route(route: dict[str, Any]) -> FreeRoute:
+def _free_route_from_dict(route: dict[str, Any]) -> FreeRoute:
     """Rebuild a FreeRoute from a scored route dict for metadata lookup."""
     return FreeRoute(
         provider=clean_text(route.get("provider")),
@@ -1183,7 +1197,7 @@ def build_stealthmark_records(
         best_ready: bool | None = None
         best_reasons: list[str] = ["no capability metadata"]
         for route in route_dicts:
-            meta = _unbenchmarked_metadata(_stealthmark_free_route(route), models_dev_rows, args)
+            meta = _unbenchmarked_metadata(_free_route_from_dict(route), models_dev_rows, args)
             if best_meta is None or (not is_feed_meta(meta) and is_feed_meta(best_meta)):
                 best_meta = meta
                 best_ready, best_reasons = agent_readiness(meta, args.min_context)
@@ -1300,6 +1314,349 @@ def build_stealthmark_records(
         "min_intelligence": args.min_intelligence,
         "scoring": "StealthMark General as an intelligence proxy; no AA coding score",
         "source_url": DEFAULT_STEALTH_URL,
+    }
+    return records, info
+
+
+# ---------------------------------------------------------------------------
+# Published composite (llm-stats.com).
+#
+# llm-stats publishes an "LLM Stats Score": one composite built from ranked
+# benchmark evidence, with per-benchmark provenance. It is a *different scale*
+# from the Artificial Analysis intelligence index, so its number is never written
+# into the AA column. Models that AA has not indexed are listed here in their own
+# section, with the source, the scale, and the fact that the underlying rows are
+# provider-reported wherever that is true.
+# ---------------------------------------------------------------------------
+
+DEFAULT_LLMSTATS_URL = "https://llm-stats.com/leaderboards/llm-leaderboard"
+
+
+def _as_float(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def _llmstats_flight_text(html: str) -> str:
+    """Recover the JSON payload from llm-stats' React flight stream.
+
+    The leaderboard is a Next.js page that ships its rows inside
+    ``self.__next_f.push([1,"<js string literal>"])`` chunks, so the row objects
+    only appear after the literal escapes are undone.
+    """
+    chunks: list[str] = []
+    for match in re.finditer(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)', html):
+        try:
+            chunk = json.loads(match.group(1))
+        except Exception:  # noqa: BLE001 - a truncated chunk is skipped, not fatal
+            continue
+        if isinstance(chunk, str):
+            chunks.append(chunk)
+    if chunks:
+        return "".join(chunks)
+    # A page that changed shape still works if the escapes are simply removed.
+    return html.replace('\\"', '"').replace("\\\\", "\\")
+
+
+def parse_llmstats_models(html: str) -> list[dict[str, Any]]:
+    """Model rows from the llm-stats leaderboard payload, one dict per model id."""
+    blob = _llmstats_flight_text(html)
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for match in re.finditer(r'\{"model_id":"', blob):
+        start = match.start()
+        depth = 0
+        for pos in range(start, len(blob)):
+            char = blob[pos]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        row = json.loads(blob[start : pos + 1])
+                    except Exception:  # noqa: BLE001 - malformed row is skipped
+                        row = None
+                    if isinstance(row, dict):
+                        model_id = clean_text(row.get("model_id"))
+                        if model_id and model_id not in seen:
+                            seen.add(model_id)
+                            rows.append(row)
+                    break
+    return rows
+
+
+def fetch_llmstats(url: str) -> tuple[list[dict[str, Any]], str | None]:
+    """Fetch the llm-stats leaderboard.
+
+    Best-effort enrichment: a fetch failure must not break the AA-scored
+    shortlist, so the error is returned for the summary instead of raising.
+    """
+    try:
+        html = http_get_bytes(url, headers={"Accept": "text/html"}).decode("utf-8", "replace")
+    except Exception as exc:  # noqa: BLE001 - best-effort enrichment
+        return [], str(exc)
+    rows = parse_llmstats_models(html)
+    if not rows:
+        return [], "llm-stats page was readable but no model rows were recognized"
+    return rows, None
+
+
+def llmstats_entry(row: dict[str, Any]) -> dict[str, Any] | None:
+    """One scored llm-stats entry, or None when the model has no overall index."""
+    general = _as_float(row.get("index_general"))
+    if general is None:
+        return None
+    model_id = clean_text(row.get("model_id"))
+    return {
+        "id": model_id or None,
+        "name": clean_text(row.get("name")) or None,
+        "organization": clean_text(row.get("organization")) or None,
+        "general": general,
+        "reasoning": _as_float(row.get("index_reasoning")),
+        "coding": _as_float(row.get("index_code")),
+        "agentic": _as_float(row.get("index_agents")),
+        "release_date": clean_text(row.get("release_date")) or None,
+        "page_url": f"https://llm-stats.com/models/{model_id}" if model_id else DEFAULT_LLMSTATS_URL,
+        "source_url": DEFAULT_LLMSTATS_URL,
+    }
+
+
+def llmstats_aliases(entry: dict[str, Any]) -> list[str]:
+    return alias_variants(entry.get("id"), entry.get("name"))
+
+
+def match_llmstats(
+    route: FreeRoute, entries: list[dict[str, Any]], min_confidence: float
+) -> tuple[dict[str, Any] | None, float, str]:
+    """Best llm-stats entry for a route, matched on the feed's own aliases.
+
+    Matching stays per-route on that route's own identity for the same reason
+    StealthMark does: a union of aliases would let one route claim another
+    model's score.
+    """
+    best: dict[str, Any] | None = None
+    best_score = 0.0
+    best_method = "none"
+    for entry in entries:
+        score, method, _src, _tgt = compare_alias_sets(route.aliases, llmstats_aliases(entry))
+        if score > best_score:
+            best, best_score, best_method = entry, score, method
+    if best is None or best_score < min_confidence:
+        return None, best_score, f"below-threshold:{best_method}"
+    return best, best_score, best_method
+
+
+def published_only_routes(
+    routes: list[FreeRoute],
+    claimed_identities: set[str],
+    entries: list[dict[str, Any]],
+    min_confidence: float,
+) -> list[dict[str, Any]]:
+    """Routes llm-stats can score that no earlier lane has already claimed.
+
+    ``claimed_identities`` carries the AA-covered models and everything StealthMark
+    already promoted, so a model is never listed in two lanes at once.
+    """
+    scored: list[dict[str, Any]] = []
+    for route in routes:
+        if _route_identity(route) in claimed_identities:
+            continue
+        entry, confidence, method = match_llmstats(route, entries, min_confidence)
+        if entry is None:
+            continue
+        scored.append(
+            {
+                "provider": route.provider,
+                "route_model": route.route_model,
+                "model_name": route.model_name,
+                "api_base": route.api_base,
+                "aliases": list(route.aliases),
+                "metadata": dict(route.metadata) if route.metadata else None,
+                "source": route.source,
+                "source_label": route_source_label(route.source),
+                **route_free_fields(route),
+                "llmstats_match_confidence": round(confidence, 4),
+                "llmstats_match_method": method,
+                "llmstats": entry,
+            }
+        )
+    return scored
+
+
+def group_published_routes(routes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Collapse routes that llm-stats identifies as the same model."""
+    grouped: dict[str, dict[str, Any]] = {}
+    for route in routes:
+        entry = route.get("llmstats") if isinstance(route.get("llmstats"), dict) else {}
+        key = normalize_text(clean_text(entry.get("id")) or clean_text(route["route_model"]))
+        bucket = grouped.get(key)
+        if bucket is None:
+            bucket = {"routes": [], "llmstats": route.get("llmstats")}
+            grouped[key] = bucket
+        bucket["routes"].append(route)
+    return grouped
+
+
+def build_published_records(
+    routes: list[dict[str, Any]],
+    models_dev_rows: list[dict[str, Any]],
+    args: argparse.Namespace,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Promote free routes that llm-stats scores and no earlier lane claimed.
+
+    The llm-stats index is a relative ranking on its own scale, not an Artificial
+    Analysis intelligence index, so these records carry no ``intelligence`` value
+    and are kept in a separate section. Provider-reported rows are labelled: an
+    unscored model's composite is only as independent as the benchmarks behind it.
+    """
+    grouped = group_published_routes(routes)
+    records: list[dict[str, Any]] = []
+    below_floor = 0
+    not_agent_ready = 0
+    not_chat = 0
+
+    for group in grouped.values():
+        entry = group.get("llmstats") if isinstance(group.get("llmstats"), dict) else {}
+        score = _as_float(entry.get("general"))
+        if score is None:
+            below_floor += 1
+            continue
+        if score < args.min_published:
+            below_floor += 1
+            continue
+
+        route_dicts = sorted(
+            group["routes"], key=lambda r: (r.get("source", ""), r.get("route_model", ""))
+        )
+        name = (
+            clean_text(entry.get("name"))
+            or clean_text(entry.get("id"))
+            or clean_text(route_dicts[0].get("model_name"))
+            or clean_text(route_dicts[0].get("route_model"))
+        )
+        description = clean_text(route_dicts[0].get("description"))
+        if not description:
+            for route in route_dicts:
+                meta = route.get("metadata")
+                if isinstance(meta, dict):
+                    description = clean_text(meta.get("description"))
+                    if description:
+                        break
+        if NON_CHAT_PATTERN.search(f"{name} {description}"):
+            not_chat += 1
+            continue
+
+        best_meta: dict[str, Any] | None = None
+        best_ready: bool | None = None
+        best_reasons: list[str] = ["no capability metadata"]
+        for route in route_dicts:
+            meta = _unbenchmarked_metadata(_free_route_from_dict(route), models_dev_rows, args)
+            if best_meta is None:
+                best_meta = meta
+                best_ready, best_reasons = agent_readiness(meta, args.min_context)
+            if best_meta.get("matched"):
+                break
+        if best_meta is None:
+            best_meta = models_dev_metadata(None)
+            best_ready, best_reasons = agent_readiness(best_meta, args.min_context)
+
+        # A known non-agent-ready model is not promoted; unknown metadata is kept
+        # and marked "?" so the section stays honest about what is unverified.
+        if best_ready is False:
+            not_agent_ready += 1
+            continue
+
+        modalities = best_meta.get("modalities") if isinstance(best_meta.get("modalities"), dict) else {}
+        outputs = modalities.get("output")
+        if isinstance(outputs, list) and outputs and "text" not in outputs:
+            not_chat += 1
+            continue
+
+        free_routes = [
+            {key: value for key, value in route.items() if key not in ("llmstats", "aliases", "metadata", "description")}
+            for route in route_dicts
+        ]
+
+        records.append(
+            {
+                "model": {
+                    "name": name,
+                    "llmstats_id": entry.get("id"),
+                    "organization": entry.get("organization"),
+                    "page_url": entry.get("page_url"),
+                },
+                "quality": {
+                    "tier": "published",
+                    "selected": True,
+                    "capability_score": round(score, 3),
+                    "intelligence": None,
+                    "coding": None,
+                    "agentic": None,
+                    "score_source": "published-composite",
+                    "score_inherited_from": None,
+                    "score_scale": (
+                        "llm-stats composite (0-100, relative ranking); "
+                        "not Artificial Analysis and not comparable with it"
+                    ),
+                    "llmstats": {
+                        "general": score,
+                        "reasoning": _as_float(entry.get("reasoning")),
+                        "coding": _as_float(entry.get("coding")),
+                        "agentic": _as_float(entry.get("agentic")),
+                        "release_date": entry.get("release_date"),
+                        "source_url": entry.get("source_url"),
+                    },
+                    "reasons_not_selected": [],
+                },
+                "agent_readiness": {
+                    "status": best_ready,
+                    "min_context_required": args.min_context,
+                    "reasons": best_reasons,
+                    "models_dev": best_meta,
+                },
+                "free_routes": free_routes,
+                "route_count": len(free_routes),
+                "best_route_match_confidence": round(
+                    max(
+                        (
+                            r.get("llmstats_match_confidence")
+                            for r in route_dicts
+                            if isinstance(r.get("llmstats_match_confidence"), (int, float))
+                        ),
+                        default=0.0,
+                    ),
+                    4,
+                ),
+                "sources": {
+                    "free_routes": sorted({route_source_label(r.get("source")) for r in free_routes}),
+                    "benchmarks": "llm-stats composite (provider-reported rows; not Artificial Analysis)",
+                    "capabilities": "models.dev" if best_meta.get("matched") else "unavailable",
+                },
+            }
+        )
+
+    records.sort(
+        key=lambda rec: (
+            rec["quality"]["llmstats"]["general"],
+            rec["route_count"],
+            clean_text(rec["model"]["name"]),
+        ),
+        reverse=True,
+    )
+
+    info = {
+        "models_gathered": 0,
+        "routes_matched": len(routes),
+        "models_promoted": len(records),
+        "selected_models": len(records),
+        "models_below_floor": below_floor,
+        "models_skipped_not_agent_ready": not_agent_ready,
+        "models_skipped_not_chat": not_chat,
+        "min_published": args.min_published,
+        "scoring": "llm-stats composite as a published-evidence score; not an AA intelligence index",
+        "source_url": DEFAULT_LLMSTATS_URL,
     }
     return records, info
 
@@ -2251,6 +2608,76 @@ def write_stealthmark_csv(path: Path, records: list[dict[str, Any]]) -> None:
                 )
 
 
+def write_published_csv(path: Path, records: list[dict[str, Any]]) -> None:
+    fields = [
+        "rank",
+        "model_name",
+        "llmstats_id",
+        "organization",
+        "tier",
+        "composite",
+        "reasoning",
+        "coding",
+        "agentic",
+        "score_source",
+        "score_scale",
+        "context",
+        "tool_call",
+        "reasoning_flag",
+        "release_date",
+        "provider",
+        "route_model",
+        "route_source",
+        "api_base",
+        "verification",
+        "verified_free",
+        "requires_provider_key",
+        "stale_mirror",
+        "llmstats_match_confidence",
+        "page_url",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        for rank, record in enumerate(records, 1):
+            model = record["model"]
+            quality = record["quality"]
+            ls = quality["llmstats"]
+            caps = record["agent_readiness"]["models_dev"]
+            for route in record["free_routes"]:
+                writer.writerow(
+                    {
+                        "rank": rank,
+                        "model_name": model.get("name"),
+                        "llmstats_id": model.get("llmstats_id"),
+                        "organization": model.get("organization"),
+                        "tier": quality.get("tier"),
+                        "composite": ls.get("general"),
+                        "reasoning": ls.get("reasoning"),
+                        "coding": ls.get("coding"),
+                        "agentic": ls.get("agentic"),
+                        "score_source": quality.get("score_source"),
+                        "score_scale": quality.get("score_scale"),
+                        "context": caps.get("context"),
+                        "tool_call": caps.get("tool_call"),
+                        "reasoning_flag": caps.get("reasoning"),
+                        "release_date": caps.get("release_date"),
+                        "provider": route.get("provider"),
+                        "route_model": route.get("route_model"),
+                        "route_source": route.get("source"),
+                        "api_base": route.get("api_base"),
+                        "verification": route.get("verification"),
+                        "verified_free": route.get("verified_free"),
+                        "requires_provider_key": route.get("requires_provider_key"),
+                        "stale_mirror": route.get("stale_mirror"),
+                        "llmstats_match_confidence": route.get(
+                            "llmstats_match_confidence"
+                        ),
+                        "page_url": model.get("page_url"),
+                    }
+                )
+
+
 def _provider_labels(routes: list[dict[str, Any]]) -> list[str]:
     """Provider labels for one model, marking claims the provider does not confirm."""
     labels: list[str] = []
@@ -2374,6 +2801,51 @@ def print_stealthmark(
     print(
         "Note: StealthMark General is an intelligence proxy from a visual/planning "
         "benchmark; it is not an Artificial Analysis coding score."
+    )
+    _print_verification_footnote([record.get("free_routes", []) for record in records])
+
+
+def print_published(
+    records: list[dict[str, Any]],
+    limit: int = 12,
+    min_published: float = 0.0,
+) -> None:
+    """Separate published-composite section: a different scale, not AA."""
+    if not records:
+        return
+
+    print(
+        f"\nPublished composite ({len(records)}; floor {min_published:g}; "
+        "llm-stats scale, not AA):\n"
+    )
+    header = (
+        f"{'#':>2}  {'Model':30} {'Providers':18} {'Comp':>6} {'Code':>6} "
+        f"{'Agent':>6} {'Routes':>6} {'Ready':>6}"
+    )
+    print(header)
+    print("-" * len(header))
+    for i, record in enumerate(records[:limit], 1):
+        model = record["model"]
+        quality = record["quality"]
+        ls = quality["llmstats"]
+        labels = _provider_labels(record.get("free_routes", [])) or ["unknown"]
+        providers = _fit_labels(labels, 18)
+        ready = record["agent_readiness"].get("status")
+        ready_text = "yes" if ready is True else ("no" if ready is False else "?")
+
+        def fmt(value: Any) -> str:
+            return f"{value:.1f}" if isinstance(value, (int, float)) else "-"
+
+        print(
+            f"{i:>2}  {clean_text(model.get('name'))[:30]:30} {providers:18} "
+            f"{fmt(ls.get('general')):>6} {fmt(ls.get('coding')):>6} "
+            f"{fmt(ls.get('agentic')):>6} {record['route_count']:>6} {ready_text:>6}"
+        )
+    if len(records) > limit:
+        print(f"    ... {len(records) - limit} more in the published JSON")
+    print(
+        "Note: the llm-stats composite is a relative ranking on its own scale, not an "
+        "Artificial Analysis intelligence index. Its rows are provider-reported."
     )
     _print_verification_footnote([record.get("free_routes", []) for record in records])
 
@@ -2535,6 +3007,32 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.82,
         help="Minimum route -> StealthMark model match confidence",
+    )
+    p.add_argument(
+        "--llmstats-url",
+        default=DEFAULT_LLMSTATS_URL,
+        help="llm-stats leaderboard page (published composite for models AA has not indexed)",
+    )
+    p.add_argument(
+        "--skip-llmstats",
+        action="store_true",
+        help="Do not fetch llm-stats; unscored models stay in the unbenchmarked section",
+    )
+    p.add_argument(
+        "--llmstats-match-threshold",
+        type=float,
+        default=0.82,
+        help="Minimum route -> llm-stats model match confidence",
+    )
+    p.add_argument(
+        "--min-published",
+        type=float,
+        default=0.0,
+        help=(
+            "Floor for the llm-stats published composite (default: 0, no floor). "
+            "It is a different scale from the AA intelligence floor, so it is never "
+            "compared with --min-intelligence."
+        ),
     )
     p.add_argument("--output-prefix", default="free_models", help="Output path prefix")
     p.add_argument("--verbose", action="store_true")
@@ -2996,6 +3494,63 @@ def run_self_test() -> int:
         weak_info,
     )
 
+    # llm-stats: the leaderboard ships as a React flight stream, so the parser has
+    # to undo the JS string escapes before the row objects exist.
+    flight = (
+        'self.__next_f.push([1,"33:[\\"$\\",\\"$L35\\",null,{\\"initialData\\":[{'
+        '\\"model_id\\":\\"ernie-5.5-flash-preview\\",\\"name\\":\\"ERNIE 5.5 Flash Preview\\",'
+        '\\"organization\\":\\"Baidu\\",\\"index_general\\":52.33,\\"index_code\\":37.9,'
+        '\\"index_agents\\":38.5,\\"index_reasoning\\":50.71,\\"release_date\\":\\"2026-11-11\\"}]'
+        '}"])'
+    )
+    parsed_rows = parse_llmstats_models(flight)
+    assert len(parsed_rows) == 1, parsed_rows
+    assert parsed_rows[0]["model_id"] == "ernie-5.5-flash-preview", parsed_rows
+    ernie_entry = llmstats_entry(parsed_rows[0])
+    assert ernie_entry is not None
+    assert ernie_entry["general"] == 52.33, ernie_entry
+    assert ernie_entry["coding"] == 37.9, ernie_entry
+    assert ernie_entry["page_url"].endswith("/models/ernie-5.5-flash-preview"), ernie_entry
+    # A model with no overall index is not scored at all.
+    assert llmstats_entry({"model_id": "x", "index_reasoning": 10}) is None
+
+    ernie_route = FreeRoute(
+        provider="openrouter",
+        route_model="baidu/ernie-5.5-flash-preview:free",
+        model_name="Baidu: ERNIE-5.5-Flash-Preview (free)",
+        api_base=None,
+        aliases=alias_variants("baidu/ernie-5.5-flash-preview:free", "ERNIE 5.5 Flash Preview"),
+        raw_index=0,
+        source="openrouter",
+        metadata={
+            "context": 1024000,
+            "tool_call": True,
+            "reasoning": True,
+            "modalities": {"output": ["text"]},
+        },
+    )
+    ls_entries = [ernie_entry]
+    assert match_llmstats(ernie_route, ls_entries, 0.82)[0] is ernie_entry
+    # A route AA already covers must not be claimed by the published lane.
+    assert published_only_routes([ernie_route], {_route_identity(ernie_route)}, ls_entries, 0.82) == []
+    published_scored = published_only_routes([ernie_route], set(), ls_entries, 0.82)
+    assert len(published_scored) == 1, published_scored
+    published_records_test, published_info_test = build_published_records(
+        published_scored, [], quality_args
+    )
+    assert len(published_records_test) == 1, published_records_test
+    assert published_records_test[0]["quality"]["score_source"] == "published-composite"
+    # The AA column stays empty: this is a different scale.
+    assert published_records_test[0]["quality"]["intelligence"] is None
+    assert published_records_test[0]["quality"]["capability_score"] == 52.33
+    assert published_info_test["models_promoted"] == 1, published_info_test
+    floor_args = argparse.Namespace(**{**vars(quality_args), "min_published": 60.0})
+    floored_records, floored_info = build_published_records(published_scored, [], floor_args)
+    assert floored_records == [] and floored_info["models_below_floor"] == 1, (
+        floored_records,
+        floored_info,
+    )
+
     print("Self-test passed.")
     return 0
 
@@ -3189,10 +3744,51 @@ def main() -> int:
         for record in stealth_records
         for route in record["free_routes"]
     }
+
+    # The published composite is the third lane: AA first, StealthMark second, and
+    # llm-stats only for what both left unclaimed. It is a different scale, so it
+    # never writes into the AA columns and never feeds the intelligence floor.
+    published_entries: list[dict[str, Any]] = []
+    published_error: str | None = None
+    if not args.skip_llmstats:
+        if args.verbose:
+            eprint("Fetching llm-stats leaderboard ...")
+        published_rows, published_error = fetch_llmstats(args.llmstats_url)
+        published_entries = [
+            entry
+            for entry in (llmstats_entry(row) for row in published_rows)
+            if entry is not None
+        ]
+        if published_error:
+            eprint(f"Warning: llm-stats enrichment unavailable: {published_error}")
+
+    claimed_identities = set(aa_identities)
+    for route in routes:
+        if (route.provider.lower(), route.route_model) in promoted_keys:
+            claimed_identities.add(_route_identity(route))
+    published_routes = (
+        published_only_routes(
+            routes, claimed_identities, published_entries, args.llmstats_match_threshold
+        )
+        if published_entries
+        else []
+    )
+    published_records, published_info = build_published_records(
+        published_routes, models_dev_rows, args
+    )
+    published_info["models_gathered"] = len(published_entries)
+
+    published_keys = {
+        (route["provider"].lower(), route["route_model"])
+        for record in published_records
+        for route in record["free_routes"]
+    }
+
     unbenchmarked_routes = [
         route
         for route in routes
         if (route.provider.lower(), route.route_model) not in promoted_keys
+        and (route.provider.lower(), route.route_model) not in published_keys
     ]
 
     benchmarked_keys: set[tuple[str, str]] = set()
@@ -3238,6 +3834,11 @@ def main() -> int:
             "stealthmark_routes": sum(r["route_count"] for r in stealth_records),
             "stealthmark_models_gathered": len(stealth_entries),
             "stealthmark_feed_error": stealth_error,
+            "published_models": len(published_records),
+            "published_routes": sum(r["route_count"] for r in published_records),
+            "published_models_gathered": len(published_entries),
+            "published_feed_error": published_error,
+            "published_min_score": args.min_published,
             "models_dev_entries_seen": len(models_dev_rows),
             "models_dev_error": models_dev_error,
             "attribution": {
@@ -3246,6 +3847,7 @@ def main() -> int:
                 "OpenRouter": "https://openrouter.ai/",
                 "models.dev": "https://models.dev/",
                 "StealthMark": "https://stealthmodels.com/",
+                "llm-stats": "https://llm-stats.com/methodology/llm-stats-score",
             },
         }
     )
@@ -3258,6 +3860,16 @@ def main() -> int:
             "routes_selected": sum(r["route_count"] for r in stealth_records),
         }
     )
+    summary["published"] = dict(published_info)
+    summary["published"].update(
+        {
+            "enabled": not args.skip_llmstats,
+            "models_gathered": len(published_entries),
+            "feed_error": published_error,
+            "models_selected": len(published_records),
+            "routes_selected": sum(r["route_count"] for r in published_records),
+        }
+    )
 
     prefix = Path(args.output_prefix)
     selected_json = prefix.with_suffix(".json")
@@ -3268,6 +3880,8 @@ def main() -> int:
     unbenchmarked_csv = Path(str(prefix) + "_unbenchmarked.csv")
     stealthmark_json = Path(str(prefix) + "_stealthmark.json")
     stealthmark_csv = Path(str(prefix) + "_stealthmark.csv")
+    published_json = Path(str(prefix) + "_published.json")
+    published_csv = Path(str(prefix) + "_published.csv")
 
     write_json(selected_json, {"summary": summary, "models": selected})
     write_csv(selected_csv, selected)
@@ -3277,6 +3891,8 @@ def main() -> int:
     write_unbenchmarked_csv(unbenchmarked_csv, unbenchmarked)
     write_json(stealthmark_json, {"summary": summary, "models": stealth_records})
     write_stealthmark_csv(stealthmark_csv, stealth_records)
+    write_json(published_json, {"summary": summary, "models": published_records})
+    write_published_csv(published_csv, published_records)
 
     print_console(
         selected,
@@ -3291,6 +3907,12 @@ def main() -> int:
             f"\nStealthMark: {len(stealth_entries)} model(s) scored; no free route "
             "matched a scored model above the current floor."
         )
+    print_published(published_records, min_published=args.min_published)
+    if published_entries and not published_records:
+        print(
+            f"\nPublished composite: {len(published_entries)} model(s) scored; no free "
+            "route matched a scored model above the current floor."
+        )
     print_unbenchmarked(unbenchmarked, min_intelligence=args.min_intelligence)
     print("\nWrote:")
     print(f"  {selected_json}")
@@ -3301,6 +3923,8 @@ def main() -> int:
     print(f"  {unbenchmarked_csv}")
     print(f"  {stealthmark_json}")
     print(f"  {stealthmark_csv}")
+    print(f"  {published_json}")
+    print(f"  {published_csv}")
     return 0
 
 

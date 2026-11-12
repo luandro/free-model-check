@@ -19,4 +19,5 @@ free_models*.csv
 !site/data/
 !site/data/free_models.json
 !site/data/free_models_stealthmark.json
+!site/data/free_models_published.json
 !site/data/free_models_unbenchmarked.json

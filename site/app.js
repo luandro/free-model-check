@@ -6,6 +6,7 @@
   var state = {
     aa: [],
     stealth: [],
+    published: [],
     unscored: [],
     summary: {},
     section: 'aa',
@@ -18,6 +19,7 @@
   var DATA = {
     aa: 'data/free_models.json',
     stealth: 'data/free_models_stealthmark.json',
+    published: 'data/free_models_published.json',
     unscored: 'data/free_models_unbenchmarked.json'
   };
 
@@ -128,6 +130,8 @@
     if (text(model.release_date)) return text(model.release_date);
     var md = record.agent_readiness && record.agent_readiness.models_dev;
     if (md && text(md.release_date)) return text(md.release_date);
+    var ls = (record.quality || {}).llmstats;
+    if (ls && text(ls.release_date)) return text(ls.release_date);
     if (record.capabilities && text(record.capabilities.release_date)) {
       return text(record.capabilities.release_date);
     }
@@ -139,7 +143,8 @@
     var quality = record.quality || {};
     var parts = [
       model.name, model.creator, model.aa_slug, model.stealthmark_id,
-      model.revealed_name, model.models_dev_id, quality.tier, quality.score_source
+      model.llmstats_id, model.revealed_name, model.models_dev_id,
+      quality.tier, quality.score_source
     ];
     (record.free_routes || []).forEach(function (route) {
       parts.push(route.provider, route.route_model, route.model_name, route.source);
@@ -285,6 +290,24 @@
       '</tr>' + extra.detail;
   }
 
+  function publishedRow(record, index) {
+    var model = record.model || {};
+    var ls = (record.quality && record.quality.llmstats) || {};
+    var key = 'pb-' + (model.llmstats_id || index);
+    var extra = detailRow(record, key, 'Route ids and price proof');
+    var ready = record.agent_readiness && record.agent_readiness.status;
+    return '<tr>' +
+      '<td class="col-rank">' + (index + 1) + '</td>' +
+      '<td class="col-model" data-label="Model">' + modelCell(record, model.page_url) + extra.toggle + '</td>' +
+      '<td class="col-score" data-label="Comp">' + oneDecimal(ls.general) + '</td>' +
+      '<td class="col-score" data-label="Code">' + oneDecimal(ls.coding) + '</td>' +
+      '<td class="col-score" data-label="Agent">' + oneDecimal(ls.agentic) + '</td>' +
+      '<td class="col-routes" data-label="Routes">' + (record.route_count || 0) + '</td>' +
+      '<td class="col-ready" data-label="Agent ready">' + readyCell(ready) + '</td>' +
+      '<td class="col-provider" data-label="Served by">' + providerCell(record.free_routes) + '</td>' +
+      '</tr>' + extra.detail;
+  }
+
   function unscoredRow(record, index) {
     var model = record.model || {};
     var caps = record.capabilities || {};
@@ -306,6 +329,7 @@
   function paint() {
     var aa = state.aa.filter(visible).sort(sorter(state.sort));
     var sm = state.stealth.filter(visible).sort(sorter('intelligence'));
+    var pb = state.published.filter(visible).sort(sorter('score'));
     var un = state.unscored.filter(visible).sort(sorter('context'));
 
     document.getElementById('rows-aa').innerHTML = aa.length
@@ -314,19 +338,25 @@
     document.getElementById('rows-stealthmark').innerHTML = sm.length
       ? sm.map(stealthRow).join('')
       : '<tr><td colspan="7">' + esc(emptyLine(state.stealth.length)) + '</td></tr>';
+    document.getElementById('rows-published').innerHTML = pb.length
+      ? pb.map(publishedRow).join('')
+      : '<tr><td colspan="8">' + esc(emptyLine(state.published.length)) + '</td></tr>';
     document.getElementById('rows-unscored').innerHTML = un.length
       ? un.map(unscoredRow).join('')
       : '<tr><td colspan="6">' + esc(emptyLine(state.unscored.length)) + '</td></tr>';
 
     document.getElementById('count-aa').textContent = aa.length;
     document.getElementById('count-stealthmark').textContent = sm.length;
+    document.getElementById('count-published').textContent = pb.length;
     document.getElementById('count-unscored').textContent = un.length;
 
     var shown = (state.section === 'aa' ? aa.length : 0) +
       (state.section === 'stealthmark' ? sm.length : 0) +
+      (state.section === 'published' ? pb.length : 0) +
       (state.section === 'unscored' ? un.length : 0);
     var total = (state.section === 'aa' ? state.aa.length : 0) +
       (state.section === 'stealthmark' ? state.stealth.length : 0) +
+      (state.section === 'published' ? state.published.length : 0) +
       (state.section === 'unscored' ? state.unscored.length : 0);
     var notes = [];
     if (state.provider !== 'all') notes.push('served by ' + state.provider);
@@ -342,7 +372,7 @@
 
   function showSection(name) {
     state.section = name;
-    ['aa', 'stealthmark', 'unscored'].forEach(function (part) {
+    ['aa', 'stealthmark', 'published', 'unscored'].forEach(function (part) {
       var section = document.getElementById('section-' + part);
       var tab = document.getElementById('tab-' + part);
       var on = part === name;
@@ -356,7 +386,7 @@
     var select = document.getElementById('provider-filter');
     var seen = {};
     var names = [];
-    state.aa.concat(state.stealth, state.unscored).forEach(function (record) {
+    state.aa.concat(state.stealth, state.published, state.unscored).forEach(function (record) {
       providerList(record.free_routes).forEach(function (p) {
         if (!seen[p.label]) {
           seen[p.label] = true;
@@ -430,6 +460,7 @@
     Promise.all([
       read('aa', DATA.aa).catch(function () { return null; }),
       read('stealth', DATA.stealth).catch(function () { return null; }),
+      read('published', DATA.published).catch(function () { return null; }),
       read('unscored', DATA.unscored).catch(function () { return null; })
     ]).then(function (parts) {
       if (parts[0] && parts[0].summary) fillSummary(parts[0].summary);
@@ -441,10 +472,12 @@
 
   function finish() {
     var hasStealth = state.stealth.length > 0;
+    var hasPublished = state.published.length > 0;
     var hasUnscored = state.unscored.length > 0;
     document.getElementById('tab-stealthmark').hidden = !hasStealth;
+    document.getElementById('tab-published').hidden = !hasPublished;
     document.getElementById('tab-unscored').hidden = !hasUnscored;
-    document.getElementById('tab-aa').hidden = !state.aa.length && !hasStealth && !hasUnscored;
+    document.getElementById('tab-aa').hidden = !state.aa.length && !hasStealth && !hasPublished && !hasUnscored;
     var sheet = document.getElementById('rows-sheet');
     if (sheet) {
       var top = state.aa.slice().sort(sorter('score')).slice(0, 5);
@@ -457,7 +490,7 @@
     if (!state.summary.generated_unix) {
       document.getElementById('folio-updated').textContent = 'edition unavailable';
     }
-    if (!state.aa.length && !state.stealth.length && !state.unscored.length) {
+    if (!state.aa.length && !state.stealth.length && !state.published.length && !state.unscored.length) {
       document.getElementById('results-status').textContent =
         'The register could not be read. The JSON files are the source of record.';
     }
