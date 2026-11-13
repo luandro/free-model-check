@@ -265,8 +265,14 @@
       ? '<span class="score-band">' + oneDecimal(cal.band_low) + '–' + oneDecimal(cal.band_high) + '</span>'
       : '';
     var tag = calibrated ? '<span class="tag">calibrated</span>' : '';
+    var rank = quality.rank_interval || {};
+    var rankText = text(rank.median !== undefined && rank.median !== null ? rank.median : index + 1);
+    var rankRange = num(rank.low) !== null && num(rank.high) !== null && rank.low !== rank.high
+      ? '<span class="rank-range" title="' + Math.round((num(rank.coverage) || 0.8) * 100) + '% rank interval">' +
+        rank.low + '–' + rank.high + '</span>'
+      : '';
     return '<tr>' +
-      '<td class="col-rank">' + (index + 1) + '</td>' +
+      '<td class="col-rank">' + esc(rankText) + rankRange + '</td>' +
       '<td class="col-model" data-label="Model">' + modelCell(record, href) + tag + extra.toggle + '</td>' +
       '<td class="col-score" data-label="Capability">' + oneDecimal(quality.capability_score) + '</td>' +
       '<td class="col-score" data-label="Intel">' + oneDecimal(quality.intelligence) + band + '</td>' +

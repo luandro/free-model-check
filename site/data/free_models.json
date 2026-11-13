@@ -55,34 +55,43 @@
       "models_selected": 0,
       "routes_selected": 0
     },
-    "generated_unix": 1794554976,
-    "runtime_seconds": 65.981,
+    "ranking": {
+      "method": "Monte Carlo over each model's score posterior",
+      "draws": 4000,
+      "coverage": 0.8,
+      "measured_models_treated_as_exact": true,
+      "seed": 20261113,
+      "fitted": true,
+      "widest": 6
+    },
+    "generated_unix": 1794579450,
+    "runtime_seconds": 70.368,
     "sources_requested": "all",
     "routes_by_source": {
-      "f24": 86,
-      "openrouter": 16,
+      "f24": 78,
+      "openrouter": 14,
       "opencode": 12
     },
     "source_errors": [],
-    "free_routes_seen": 28,
-    "free_routes_unmatched_to_aa": 14,
+    "free_routes_seen": 26,
+    "free_routes_unmatched_to_aa": 12,
     "routes_by_verification": {
-      "zero-priced": 28,
+      "zero-priced": 26,
       "free-tier": 0,
       "mirror-listed": 0
     },
-    "free_tier_routes_skipped": 86,
+    "free_tier_routes_skipped": 78,
     "mirror_routes_skipped": 0,
     "include_free_tier": false,
     "include_unscored": true,
-    "unbenchmarked_models": 9,
-    "unbenchmarked_routes": 9,
+    "unbenchmarked_models": 8,
+    "unbenchmarked_routes": 8,
     "stealthmark_models": 0,
     "stealthmark_routes": 0,
     "stealthmark_models_gathered": 54,
     "stealthmark_feed_error": null,
-    "published_models": 5,
-    "published_routes": 5,
+    "published_models": 4,
+    "published_routes": 4,
     "published_models_gathered": 417,
     "published_feed_error": null,
     "published_min_score": 0.0,
@@ -92,11 +101,11 @@
     "calibration": {
       "method": "least squares on non-variant AA entries matched to llm-stats; band is an 80% prediction interval, not the residual spread",
       "fitted_on": 21,
-      "slope": 0.9391,
-      "intercept": -16.423,
-      "residual_sd": 4.303,
+      "slope": 0.9462,
+      "intercept": -16.594,
+      "residual_sd": 4.33,
       "residual_df": 19,
-      "composite_mean": 35.829,
+      "composite_mean": 35.741,
       "band_coverage": "80%",
       "aa_rows_seen": 739,
       "aa_rows_variant_excluded": 452,
@@ -115,9 +124,9 @@
     },
     "published": {
       "models_gathered": 417,
-      "routes_matched": 6,
-      "models_promoted": 6,
-      "selected_models": 6,
+      "routes_matched": 5,
+      "models_promoted": 5,
+      "selected_models": 5,
       "models_below_floor": 0,
       "models_skipped_not_agent_ready": 0,
       "models_skipped_not_chat": 0,
@@ -126,18 +135,18 @@
       "source_url": "https://llm-stats.com/leaderboards/llm-leaderboard",
       "enabled": true,
       "feed_error": null,
-      "models_selected": 5,
-      "routes_selected": 5,
+      "models_selected": 4,
+      "routes_selected": 4,
       "models_calibrated": 1,
       "models_promoted_to_register": 1,
       "calibration": {
         "method": "least squares on non-variant AA entries matched to llm-stats; band is an 80% prediction interval, not the residual spread",
         "fitted_on": 21,
-        "slope": 0.9391,
-        "intercept": -16.423,
-        "residual_sd": 4.303,
+        "slope": 0.9462,
+        "intercept": -16.594,
+        "residual_sd": 4.33,
         "residual_df": 19,
-        "composite_mean": 35.829,
+        "composite_mean": 35.741,
         "band_coverage": "80%",
         "aa_rows_seen": 739,
         "aa_rows_variant_excluded": 452,
@@ -157,8 +166,8 @@
       "quality": {
         "tier": "strong",
         "selected": true,
-        "capability_score": 32.72,
-        "intelligence": 32.72,
+        "capability_score": 32.919,
+        "intelligence": 32.919,
         "coding": 37.9,
         "agentic": 38.5,
         "score_source": "calibrated-llmstats",
@@ -176,21 +185,29 @@
         "specialized_source": "llm-stats",
         "calibration": {
           "composite": 52.33,
-          "aa_equivalent": 32.72,
-          "band_low": 26.602,
-          "band_high": 38.838,
+          "aa_equivalent": 32.919,
+          "band_low": 26.756,
+          "band_high": 39.083,
           "method": "least squares on non-variant AA entries matched to llm-stats; band is an 80% prediction interval, not the residual spread",
           "fitted_on": 21,
-          "slope": 0.9391,
-          "intercept": -16.423,
-          "residual_sd": 4.303,
+          "slope": 0.9462,
+          "intercept": -16.594,
+          "residual_sd": 4.33,
           "residual_df": 19,
-          "composite_mean": 35.829,
+          "composite_mean": 35.741,
           "band_coverage": "80%",
           "aa_rows_seen": 739,
           "aa_rows_variant_excluded": 452,
           "aa_rows_used": 21,
           "source": "llm-stats composite to AA intelligence"
+        },
+        "rank_interval": {
+          "median": 1,
+          "low": 1,
+          "high": 5,
+          "p_first": 0.5343,
+          "draws": 4000,
+          "coverage": 0.8
         }
       },
       "agent_readiness": {
@@ -258,16 +275,24 @@
         "selected": true,
         "capability_score": 32.6,
         "intelligence": 32.6,
-        "coding": 40.21,
-        "agentic": 37.85,
+        "coding": 38.65,
+        "agentic": 36.61,
         "score_source": "inherited",
         "score_inherited_from": "deepseek-v4-1-flash-1017",
         "reasons_not_selected": [],
-        "specialized_source": "llm-stats"
+        "specialized_source": "llm-stats",
+        "rank_interval": {
+          "median": 2,
+          "low": 1,
+          "high": 2,
+          "p_first": 0.4657,
+          "draws": 4000,
+          "coverage": 0.8
+        }
       },
       "performance": {
-        "tokens_per_second": 224.34,
-        "time_to_first_token_seconds": 0.75
+        "tokens_per_second": 224.81,
+        "time_to_first_token_seconds": 0.77
       },
       "agent_readiness": {
         "status": true,
@@ -337,16 +362,24 @@
         "selected": true,
         "capability_score": 30.6,
         "intelligence": 30.6,
-        "coding": 36.14,
-        "agentic": 33.26,
+        "coding": 36.06,
+        "agentic": 32.85,
         "score_source": "own",
         "score_inherited_from": null,
         "reasons_not_selected": [],
-        "specialized_source": "llm-stats"
+        "specialized_source": "llm-stats",
+        "rank_interval": {
+          "median": 3,
+          "low": 2,
+          "high": 3,
+          "p_first": 0.0,
+          "draws": 4000,
+          "coverage": 0.8
+        }
       },
       "performance": {
         "tokens_per_second": 73.88,
-        "time_to_first_token_seconds": 2.44
+        "time_to_first_token_seconds": 2.57
       },
       "agent_readiness": {
         "status": true,
@@ -436,16 +469,24 @@
         "selected": true,
         "capability_score": 29.1,
         "intelligence": 29.1,
-        "coding": 38.16,
-        "agentic": 35.52,
+        "coding": 36.58,
+        "agentic": 34.41,
         "score_source": "own",
         "score_inherited_from": null,
         "reasons_not_selected": [],
-        "specialized_source": "llm-stats"
+        "specialized_source": "llm-stats",
+        "rank_interval": {
+          "median": 4,
+          "low": 3,
+          "high": 4,
+          "p_first": 0.0,
+          "draws": 4000,
+          "coverage": 0.8
+        }
       },
       "performance": {
-        "tokens_per_second": 140.61,
-        "time_to_first_token_seconds": 1.15
+        "tokens_per_second": 155.33,
+        "time_to_first_token_seconds": 1.12
       },
       "agent_readiness": {
         "status": true,
@@ -516,16 +557,24 @@
         "selected": true,
         "capability_score": 27.8,
         "intelligence": 27.8,
-        "coding": 31.51,
-        "agentic": 34.2,
+        "coding": 29.96,
+        "agentic": 33.05,
         "score_source": "own",
         "score_inherited_from": null,
         "reasons_not_selected": [],
-        "specialized_source": "llm-stats"
+        "specialized_source": "llm-stats",
+        "rank_interval": {
+          "median": 5,
+          "low": 4,
+          "high": 5,
+          "p_first": 0.0,
+          "draws": 4000,
+          "coverage": 0.8
+        }
       },
       "performance": {
-        "tokens_per_second": 51.75,
-        "time_to_first_token_seconds": 2.17
+        "tokens_per_second": 49.39,
+        "time_to_first_token_seconds": 2.32
       },
       "agent_readiness": {
         "status": true,
@@ -597,16 +646,24 @@
         "selected": true,
         "capability_score": 26.7,
         "intelligence": 26.7,
-        "coding": 33.75,
-        "agentic": 31.6,
+        "coding": 32.25,
+        "agentic": 30.51,
         "score_source": "own",
         "score_inherited_from": null,
         "reasons_not_selected": [],
-        "specialized_source": "llm-stats"
+        "specialized_source": "llm-stats",
+        "rank_interval": {
+          "median": 6,
+          "low": 6,
+          "high": 6,
+          "p_first": 0.0,
+          "draws": 4000,
+          "coverage": 0.8
+        }
       },
       "performance": {
-        "tokens_per_second": 34.93,
-        "time_to_first_token_seconds": 3.18
+        "tokens_per_second": 35.52,
+        "time_to_first_token_seconds": 2.97
       },
       "agent_readiness": {
         "status": true,

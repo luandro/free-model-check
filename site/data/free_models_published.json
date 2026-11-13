@@ -55,34 +55,43 @@
       "models_selected": 0,
       "routes_selected": 0
     },
-    "generated_unix": 1794554976,
-    "runtime_seconds": 65.981,
+    "ranking": {
+      "method": "Monte Carlo over each model's score posterior",
+      "draws": 4000,
+      "coverage": 0.8,
+      "measured_models_treated_as_exact": true,
+      "seed": 20261113,
+      "fitted": true,
+      "widest": 6
+    },
+    "generated_unix": 1794579450,
+    "runtime_seconds": 70.368,
     "sources_requested": "all",
     "routes_by_source": {
-      "f24": 86,
-      "openrouter": 16,
+      "f24": 78,
+      "openrouter": 14,
       "opencode": 12
     },
     "source_errors": [],
-    "free_routes_seen": 28,
-    "free_routes_unmatched_to_aa": 14,
+    "free_routes_seen": 26,
+    "free_routes_unmatched_to_aa": 12,
     "routes_by_verification": {
-      "zero-priced": 28,
+      "zero-priced": 26,
       "free-tier": 0,
       "mirror-listed": 0
     },
-    "free_tier_routes_skipped": 86,
+    "free_tier_routes_skipped": 78,
     "mirror_routes_skipped": 0,
     "include_free_tier": false,
     "include_unscored": true,
-    "unbenchmarked_models": 9,
-    "unbenchmarked_routes": 9,
+    "unbenchmarked_models": 8,
+    "unbenchmarked_routes": 8,
     "stealthmark_models": 0,
     "stealthmark_routes": 0,
     "stealthmark_models_gathered": 54,
     "stealthmark_feed_error": null,
-    "published_models": 5,
-    "published_routes": 5,
+    "published_models": 4,
+    "published_routes": 4,
     "published_models_gathered": 417,
     "published_feed_error": null,
     "published_min_score": 0.0,
@@ -92,11 +101,11 @@
     "calibration": {
       "method": "least squares on non-variant AA entries matched to llm-stats; band is an 80% prediction interval, not the residual spread",
       "fitted_on": 21,
-      "slope": 0.9391,
-      "intercept": -16.423,
-      "residual_sd": 4.303,
+      "slope": 0.9462,
+      "intercept": -16.594,
+      "residual_sd": 4.33,
       "residual_df": 19,
-      "composite_mean": 35.829,
+      "composite_mean": 35.741,
       "band_coverage": "80%",
       "aa_rows_seen": 739,
       "aa_rows_variant_excluded": 452,
@@ -115,9 +124,9 @@
     },
     "published": {
       "models_gathered": 417,
-      "routes_matched": 6,
-      "models_promoted": 6,
-      "selected_models": 6,
+      "routes_matched": 5,
+      "models_promoted": 5,
+      "selected_models": 5,
       "models_below_floor": 0,
       "models_skipped_not_agent_ready": 0,
       "models_skipped_not_chat": 0,
@@ -126,18 +135,18 @@
       "source_url": "https://llm-stats.com/leaderboards/llm-leaderboard",
       "enabled": true,
       "feed_error": null,
-      "models_selected": 5,
-      "routes_selected": 5,
+      "models_selected": 4,
+      "routes_selected": 4,
       "models_calibrated": 1,
       "models_promoted_to_register": 1,
       "calibration": {
         "method": "least squares on non-variant AA entries matched to llm-stats; band is an 80% prediction interval, not the residual spread",
         "fitted_on": 21,
-        "slope": 0.9391,
-        "intercept": -16.423,
-        "residual_sd": 4.303,
+        "slope": 0.9462,
+        "intercept": -16.594,
+        "residual_sd": 4.33,
         "residual_df": 19,
-        "composite_mean": 35.829,
+        "composite_mean": 35.741,
         "band_coverage": "80%",
         "aa_rows_seen": 739,
         "aa_rows_variant_excluded": 452,
@@ -157,7 +166,7 @@
       "quality": {
         "tier": "below-floor",
         "selected": false,
-        "capability_score": 32.41,
+        "capability_score": 32.45,
         "intelligence": null,
         "coding": null,
         "agentic": null,
@@ -165,18 +174,18 @@
         "score_inherited_from": null,
         "score_scale": "llm-stats composite (0-100, relative ranking); not Artificial Analysis and not comparable with it",
         "llmstats": {
-          "general": 32.41,
-          "reasoning": 32.87,
+          "general": 32.45,
+          "reasoning": 32.92,
           "coding": null,
-          "agentic": 12.95,
+          "agentic": 12.77,
           "release_date": "2026-04-02",
           "source_url": "https://llm-stats.com/leaderboards/llm-leaderboard"
         },
         "reasons_not_selected": [],
         "calibration_preview": {
-          "aa_equivalent": 14.013,
-          "band_low": 8.154,
-          "band_high": 19.873,
+          "aa_equivalent": 14.11,
+          "band_low": 8.213,
+          "band_high": 20.006,
           "note": "shown for context only; this record stays on the llm-stats scale"
         }
       },
@@ -243,7 +252,7 @@
       "quality": {
         "tier": "below-floor",
         "selected": false,
-        "capability_score": 31.84,
+        "capability_score": 31.79,
         "intelligence": null,
         "coding": null,
         "agentic": null,
@@ -251,7 +260,7 @@
         "score_inherited_from": null,
         "score_scale": "llm-stats composite (0-100, relative ranking); not Artificial Analysis and not comparable with it",
         "llmstats": {
-          "general": 31.84,
+          "general": 31.79,
           "reasoning": 31.1,
           "coding": null,
           "agentic": null,
@@ -260,9 +269,9 @@
         },
         "reasons_not_selected": [],
         "calibration_preview": {
-          "aa_equivalent": 13.478,
-          "band_low": 7.614,
-          "band_high": 19.342,
+          "aa_equivalent": 13.485,
+          "band_low": 7.584,
+          "band_high": 19.386,
           "note": "shown for context only; this record stays on the llm-stats scale"
         }
       },
@@ -329,7 +338,7 @@
       "quality": {
         "tier": "below-floor",
         "selected": false,
-        "capability_score": 28.91,
+        "capability_score": 28.94,
         "intelligence": null,
         "coding": null,
         "agentic": null,
@@ -337,18 +346,18 @@
         "score_inherited_from": null,
         "score_scale": "llm-stats composite (0-100, relative ranking); not Artificial Analysis and not comparable with it",
         "llmstats": {
-          "general": 28.91,
-          "reasoning": 28.52,
+          "general": 28.94,
+          "reasoning": 28.56,
           "coding": null,
-          "agentic": 11.95,
+          "agentic": 11.78,
           "release_date": "2026-04-02",
           "source_url": "https://llm-stats.com/leaderboards/llm-leaderboard"
         },
         "reasons_not_selected": [],
         "calibration_preview": {
-          "aa_equivalent": 10.727,
-          "band_low": 4.83,
-          "band_high": 16.623,
+          "aa_equivalent": 10.788,
+          "band_low": 4.856,
+          "band_high": 16.721,
           "note": "shown for context only; this record stays on the llm-stats scale"
         }
       },
@@ -415,7 +424,7 @@
       "quality": {
         "tier": "below-floor",
         "selected": false,
-        "capability_score": 24.84,
+        "capability_score": 24.81,
         "intelligence": null,
         "coding": null,
         "agentic": null,
@@ -423,18 +432,18 @@
         "score_inherited_from": null,
         "score_scale": "llm-stats composite (0-100, relative ranking); not Artificial Analysis and not comparable with it",
         "llmstats": {
-          "general": 24.84,
-          "reasoning": 20.63,
-          "coding": 7.16,
-          "agentic": 17.63,
+          "general": 24.81,
+          "reasoning": 20.61,
+          "coding": 7.02,
+          "agentic": 17.13,
           "release_date": "2026-10-27",
           "source_url": "https://llm-stats.com/leaderboards/llm-leaderboard"
         },
         "reasons_not_selected": [],
         "calibration_preview": {
-          "aa_equivalent": 6.904,
-          "band_low": 0.935,
-          "band_high": 12.874,
+          "aa_equivalent": 6.881,
+          "band_low": 0.873,
+          "band_high": 12.888,
           "note": "shown for context only; this record stays on the llm-stats scale"
         }
       },
@@ -469,91 +478,6 @@
           "provider": "openrouter",
           "route_model": "liquid/lfm-3-1.7b:free",
           "model_name": "LiquidAI: LFM3-1.7B (free)",
-          "api_base": null,
-          "source": "openrouter",
-          "source_label": "OpenRouter public models API (zero-priced)",
-          "verification": "zero-priced",
-          "verified_free": true,
-          "requires_provider_key": false,
-          "stale_mirror": false,
-          "llmstats_match_confidence": 1.0,
-          "llmstats_match_method": "exact"
-        }
-      ],
-      "route_count": 1,
-      "best_route_match_confidence": 1.0,
-      "sources": {
-        "free_routes": [
-          "OpenRouter public models API (zero-priced)"
-        ],
-        "benchmarks": "llm-stats composite (provider-reported rows; not Artificial Analysis)",
-        "capabilities": "models.dev"
-      }
-    },
-    {
-      "model": {
-        "name": "LFM2.5-2.6B",
-        "llmstats_id": "lfm-2.5-2.6b",
-        "organization": "Liquid AI",
-        "page_url": "https://llm-stats.com/models/lfm-2.5-2.6b"
-      },
-      "quality": {
-        "tier": "below-floor",
-        "selected": false,
-        "capability_score": 17.54,
-        "intelligence": null,
-        "coding": null,
-        "agentic": null,
-        "score_source": "published-composite",
-        "score_inherited_from": null,
-        "score_scale": "llm-stats composite (0-100, relative ranking); not Artificial Analysis and not comparable with it",
-        "llmstats": {
-          "general": 17.54,
-          "reasoning": 13.35,
-          "coding": 14.69,
-          "agentic": 6.03,
-          "release_date": "2026-08-04",
-          "source_url": "https://llm-stats.com/leaderboards/llm-leaderboard"
-        },
-        "reasons_not_selected": [],
-        "calibration_preview": {
-          "aa_equivalent": 0.049,
-          "band_low": -6.129,
-          "band_high": 6.227,
-          "note": "shown for context only; this record stays on the llm-stats scale"
-        }
-      },
-      "agent_readiness": {
-        "status": true,
-        "min_context_required": 65536,
-        "reasons": [],
-        "models_dev": {
-          "matched": true,
-          "id": "liquid/lfm-2.5-2.6b:free",
-          "name": "LiquidAI: LFM2.5-2.6B (free)",
-          "context": 65536,
-          "tool_call": true,
-          "reasoning": true,
-          "attachment": null,
-          "structured_output": null,
-          "modalities": {
-            "input": [
-              "text"
-            ],
-            "output": [
-              "text"
-            ]
-          },
-          "release_date": "2026-08-11",
-          "match_confidence": null,
-          "match_method": "feed-metadata"
-        }
-      },
-      "free_routes": [
-        {
-          "provider": "openrouter",
-          "route_model": "liquid/lfm-2.5-2.6b:free",
-          "model_name": "LiquidAI: LFM2.5-2.6B (free)",
           "api_base": null,
           "source": "openrouter",
           "source_label": "OpenRouter public models API (zero-priced)",

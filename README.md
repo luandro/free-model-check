@@ -172,6 +172,13 @@ The band is a prediction interval for a new observation, not the spread of the
 fitted residuals: it carries a leverage term, so it widens away from the sample
 mean, and it uses the residual standard error with n−2 degrees of freedom.
 
+**Rank intervals.** A rank is reported as a median with an 80% interval, not a bare
+number. Each model's score posterior is simulated 4000 times and the field is
+re-ranked on every draw, so an estimated row shows where it actually lands:
+ERNIE reads `1 (1–5)`, because its band overlaps every measured model. Measured
+rows are treated as exact, which is optimistic — AA does not publish the
+per-model variance that would let their own uncertainty in.
+
 Lane order is fixed: AA claims a model first, then StealthMark, then llm-stats.
 A route never appears in two lanes. The Coding and Agentic columns are filled from
 llm-stats wherever AA publishes neither — which is everywhere on the free tier —

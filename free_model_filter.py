@@ -155,7 +155,9 @@ import getpass
 import json
 import math
 import os
+import random
 import re
+import statistics
 import sys
 import time
 import unicodedata
@@ -2002,6 +2004,101 @@ def fill_specialized_from_llmstats(
     return filled
 
 
+RANK_DRAWS = 4000
+RANK_COVERAGE = 0.80
+RANK_SEED = 20261113
+
+
+def assign_rank_intervals(
+    records: list[dict[str, Any]],
+    draws: int = RANK_DRAWS,
+    coverage: float = RANK_COVERAGE,
+) -> dict[str, Any]:
+    """Monte Carlo rank intervals over each record's score posterior.
+
+    A single rank claims a precision the data rarely has: a calibrated estimate
+    carries a prediction interval, so its position is a distribution, not a point.
+    Each draw samples every model's score and ranks the field; the reported median
+    rank and the central ``coverage`` interval are read off those draws.
+
+    Measured models are treated as exact, which is optimistic: Artificial Analysis
+    does not publish the per-model variance that would let their uncertainty in.
+    """
+    info = {
+        "method": "Monte Carlo over each model's score posterior",
+        "draws": draws,
+        "coverage": coverage,
+        "measured_models_treated_as_exact": True,
+        "seed": RANK_SEED,
+        "fitted": False,
+    }
+    if len(records) < 2:
+        for record in records:
+            record["quality"]["rank_interval"] = {
+                "median": 1,
+                "low": 1,
+                "high": 1,
+                "p_first": 1.0,
+                "draws": draws,
+                "coverage": coverage,
+            }
+        info["fitted"] = True
+        return info
+
+    means: list[float] = []
+    sigmas: list[float] = []
+    for record in records:
+        quality = record["quality"]
+        value = quality.get("capability_score")
+        means.append(float(value) if isinstance(value, (int, float)) else 0.0)
+        calibration = quality.get("calibration")
+        sigma = 0.0
+        if isinstance(calibration, dict):
+            low = calibration.get("band_low")
+            high = calibration.get("band_high")
+            if isinstance(low, (int, float)) and isinstance(high, (int, float)):
+                df = calibration.get("residual_df") or 1
+                t = Calibration.t_critical(max(1, int(df)))
+                sigma = (float(high) - float(low)) / (2.0 * t)
+        sigmas.append(max(0.0, sigma))
+
+    rng = random.Random(RANK_SEED)
+    samples: list[list[int]] = [[] for _ in records]
+    for _ in range(draws):
+        scores = [
+            mean + (rng.gauss(0.0, sigma) if sigma > 0 else 0.0)
+            for mean, sigma in zip(means, sigmas)
+        ]
+        for position, index in enumerate(sorted(range(len(scores)), key=lambda i: -scores[i]), 1):
+            samples[index].append(position)
+
+    for record, ranks in zip(records, samples):
+        first = sum(1 for r in ranks if r == 1) / len(ranks)
+        record["quality"]["rank_interval"] = {
+            "median": int(round(statistics.median(ranks))),
+            "low": _rank_percentile(ranks, (1.0 - coverage) / 2.0),
+            "high": _rank_percentile(ranks, 1.0 - (1.0 - coverage) / 2.0),
+            "p_first": round(first, 4),
+            "draws": draws,
+            "coverage": coverage,
+        }
+
+    info["fitted"] = True
+    info["widest"] = max(r["quality"]["rank_interval"]["high"] for r in records)
+    return info
+
+
+def _rank_percentile(values: list[int], p: float) -> int:
+    """Nearest-rank percentile: a rank is an integer, so interpolate then round."""
+    ordered = sorted(values)
+    if not ordered:
+        return 1
+    position = (len(ordered) - 1) * max(0.0, min(1.0, p))
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    return int(round(ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)))
+
+
 def percentile_threshold(values: list[float], percentile: float) -> float | None:
     vals = sorted(v for v in values if isinstance(v, (int, float)) and math.isfinite(v))
     if not vals:
@@ -3221,7 +3318,7 @@ def print_console(
         return
 
     print("\nSelected free models:\n")
-    header = f"{'#':>2}  {'Model':34} {'Providers':24} {'Score':>7} {'Intel':>7} {'Code':>7} {'Agent':>7} {'Routes':>6} {'Ready':>6}"
+    header = f"{'#':>2}  {'Model':34} {'Providers':24} {'Score':>7} {'Intel':>7} {'Code':>7} {'Agent':>7} {'Rank 80%':>9} {'Routes':>6} {'Ready':>6}"
     print(header)
     print("-" * len(header))
     for i, rec in enumerate(selected, 1):
@@ -3235,16 +3332,31 @@ def print_console(
             return f"{v:.1f}" if isinstance(v, (int, float)) else "-"
 
         marker = "*" if q.get("score_source") == "calibrated-llmstats" else " "
+        rank = q.get("rank_interval") or {}
+        rank_text = (
+            f"{rank['median']} ({rank['low']}-{rank['high']})"
+            if rank.get("low") is not None and rank.get("low") != rank.get("high")
+            else str(rank.get("median", "-"))
+        )
         print(
             f"{i:>2}  {model:34} {providers:24} {fmt(q.get('capability_score')):>6}{marker} "
             f"{fmt(q.get('intelligence')):>7} {fmt(q.get('coding')):>7} "
-            f"{fmt(q.get('agentic')):>7} {rec['route_count']:>6} {ready_text:>6}"
+            f"{fmt(q.get('agentic')):>7} {rank_text:>9} {rec['route_count']:>6} {ready_text:>6}"
         )
 
     if any(r["quality"].get("score_source") == "calibrated-llmstats" for r in selected):
         print(
             "* calibrated from the llm-stats composite onto the AA scale: an estimate "
             "with a band, not an Artificial Analysis result."
+        )
+    if any(
+        (r["quality"].get("rank_interval") or {}).get("low")
+        != (r["quality"].get("rank_interval") or {}).get("high")
+        for r in selected
+    ):
+        print(
+            "Rank 80% is the 80% rank interval: a calibrated row's position is simulated, "
+            "not fixed, so its interval can span several places."
         )
     if unmatched_count:
         print(f"\n{unmatched_count} free route(s) could not be confidently matched to Artificial Analysis; see unmatched JSON.")
@@ -4000,6 +4112,36 @@ def run_self_test() -> int:
     assert aa_record["quality"]["capability_score"] == 30.0, aa_record
     assert aa_record["quality"]["specialized_source"] == "llm-stats"
 
+    # Rank intervals: a calibrated row's position is a distribution, not a point.
+    rank_records = [
+        {"model": {"name": "Measured A"}, "quality": {"capability_score": 40.0}},
+        {"model": {"name": "Measured B"}, "quality": {"capability_score": 30.0}},
+        {
+            "model": {"name": "Estimated C"},
+            "quality": {
+                "capability_score": 41.0,
+                "calibration": {"band_low": 30.0, "band_high": 52.0, "residual_df": 20},
+            },
+        },
+    ]
+    rank_info_test = assign_rank_intervals(rank_records, draws=2000)
+    assert rank_info_test["fitted"] is True, rank_info_test
+    intervals = {r["model"]["name"]: r["quality"]["rank_interval"] for r in rank_records}
+    estimated = intervals["Estimated C"]
+    measured = intervals["Measured A"]
+    assert estimated["low"] <= estimated["median"] <= estimated["high"], estimated
+    assert estimated["low"] < estimated["high"], estimated
+    assert 0.0 <= estimated["p_first"] <= 1.0, estimated
+    # The estimated row must be the uncertain one: its interval cannot be tighter.
+    assert (estimated["high"] - estimated["low"]) >= (measured["high"] - measured["low"]), (
+        estimated,
+        measured,
+    )
+    # A field of one has nothing to rank against.
+    single = assign_rank_intervals(rank_records[:1], draws=100)
+    assert single["fitted"] is True
+    assert rank_records[0]["quality"]["rank_interval"]["median"] == 1
+
     print("Self-test passed.")
     return 0
 
@@ -4276,6 +4418,11 @@ def main() -> int:
         if entry is not None:
             ls_by_route[_route_key(route)] = entry
     specialized_filled = fill_specialized_from_llmstats([*selected, *rejected], ls_by_route)
+
+    # A rank is a distribution, not a point: a calibrated row carries a prediction
+    # interval, so its position is simulated rather than asserted.
+    ranking_info = assign_rank_intervals(selected)
+    summary["ranking"] = ranking_info
 
     benchmarked_keys: set[tuple[str, str]] = set()
     matched_aa_by_route: dict[tuple[str, str], str | None] = {}
