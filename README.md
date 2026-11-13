@@ -149,7 +149,7 @@ AA does not list. StealthMark results are kept in a separate output and console
 section, are labelled `stealthmark-proxy`, never override an AA score, and reject
 partial runs.
 
-## Published composite
+## Published composite and calibrated placement
 
 llm-stats.com publishes one composite score built from ranked benchmark
 evidence, with per-benchmark provenance. It is a **different scale** from the AA
@@ -158,13 +158,24 @@ points higher — so it is never written into the AA columns and never compared 
 `--min-intelligence`.
 
 It fills the gap AA leaves: a model released days ago has no AA entry yet, and its
-maker's own benchmark table is the only published evidence. Those models are
-listed in their own section, labelled `published-composite`, with the scale and
-the provider-reported caveat shown. `--min-published` is a separate floor for
-them, and it defaults to `0` because the section is an index, not a shortlist.
+maker's own benchmark table is the only published evidence.
+
+**Calibrated placement.** A least-squares fit maps the composite onto the AA
+index, fitted only on AA entries that are the model's canonical row (effort
+variants and dated snapshots excluded, and counted in the summary). A model whose
+**lower prediction bound** clears `--min-intelligence` joins the register with an
+estimate and an 80% prediction interval, tagged `calibrated`. One that does not
+stays in the published section on its own scale, with no calibrated number
+written onto it.
+
+The band is a prediction interval for a new observation, not the spread of the
+fitted residuals: it carries a leverage term, so it widens away from the sample
+mean, and it uses the residual standard error with n−2 degrees of freedom.
 
 Lane order is fixed: AA claims a model first, then StealthMark, then llm-stats.
-A route never appears in two lanes.
+A route never appears in two lanes. The Coding and Agentic columns are filled from
+llm-stats wherever AA publishes neither — which is everywhere on the free tier —
+and are marked `ls` and kept out of the ranking score.
 
 | Source | Scale | Measures | Covers ERNIE 5.5 Flash? |
 |---|---|---|---|

@@ -247,22 +247,29 @@
       '</div></td></tr>';
     var toggle = '<button class="row-toggle" type="button" data-toggle="' + esc(key) + '" aria-expanded="' +
       (open ? 'true' : 'false') + '" aria-controls="detail-' + esc(key) + '" aria-label="' +
-      (open ? 'Hide' : 'Show') + ' the ' + routes.length + ' route ids">Open ' + routes.length + '</button>';
+      (open ? 'Hide' : 'Show') + ' the ' + routes.length + ' route ids">' +
+      (open ? 'Close' : 'Open') + '</button>';
     return { toggle: toggle, detail: detail };
   }
 
   function aaRow(record, index) {
     var quality = record.quality || {};
-    var key = 'aa-' + (record.model && (record.model.aa_slug || record.model.name) || index);
+    var calibrated = quality.score_source === 'calibrated-llmstats';
+    var cal = quality.calibration || {};
+    var key = 'aa-' + (record.model && (record.model.aa_slug || record.model.llmstats_id || record.model.name) || index);
     var extra = detailRow(record, key, 'Route ids and price proof');
     var href = record.model && record.model.aa_slug
       ? 'https://artificialanalysis.ai/models/' + encodeURIComponent(record.model.aa_slug)
-      : null;
+      : (record.model && record.model.page_url) || null;
+    var band = calibrated && num(cal.band_low) !== null && num(cal.band_high) !== null
+      ? '<span class="score-band">' + oneDecimal(cal.band_low) + '–' + oneDecimal(cal.band_high) + '</span>'
+      : '';
+    var tag = calibrated ? '<span class="tag">calibrated</span>' : '';
     return '<tr>' +
       '<td class="col-rank">' + (index + 1) + '</td>' +
-      '<td class="col-model" data-label="Model">' + modelCell(record, href) + extra.toggle + '</td>' +
+      '<td class="col-model" data-label="Model">' + modelCell(record, href) + tag + extra.toggle + '</td>' +
       '<td class="col-score" data-label="Capability">' + oneDecimal(quality.capability_score) + '</td>' +
-      '<td class="col-score" data-label="Intel">' + oneDecimal(quality.intelligence) + '</td>' +
+      '<td class="col-score" data-label="Intel">' + oneDecimal(quality.intelligence) + band + '</td>' +
       '<td class="col-score" data-label="Code">' + oneDecimal(quality.coding) + '</td>' +
       '<td class="col-score" data-label="Agent">' + oneDecimal(quality.agentic) + '</td>' +
       '<td class="col-routes" data-label="Routes">' + (record.route_count || 0) + '</td>' +
@@ -538,8 +545,7 @@
       state.open[key] = !state.open[key];
       if (row) row.hidden = !state.open[key];
       toggle.setAttribute('aria-expanded', state.open[key] ? 'true' : 'false');
-      var count = row ? row.querySelectorAll('.route-list li').length : 0;
-      toggle.textContent = (state.open[key] ? 'Close ' : 'Open ') + count;
+      toggle.textContent = state.open[key] ? 'Close' : 'Open';
     });
 
     var root = document.documentElement;

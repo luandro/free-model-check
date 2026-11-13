@@ -1417,8 +1417,14 @@ def fetch_llmstats(url: str, attempts: int = 3) -> tuple[list[dict[str, Any]], s
             if not model_id:
                 continue
             held = merged.get(model_id)
-            if held is None or (held.get("index_general") is None and row.get("index_general") is not None):
-                merged[model_id] = row
+            if held is None:
+                merged[model_id] = dict(row)
+                continue
+            # Backfill field by field. A later attempt that fills a field the held
+            # row lacks must not be discarded just because one other field is set.
+            for key, value in row.items():
+                if held.get(key) is None and value is not None:
+                    held[key] = value
         if attempt + 1 < max(1, attempts):
             time.sleep(2)
 
@@ -1683,6 +1689,288 @@ def build_published_records(
         "source_url": DEFAULT_LLMSTATS_URL,
     }
     return records, info
+
+
+@dataclass
+class Calibration:
+    """Linear map from the llm-stats composite onto the AA intelligence index.
+
+    Fitted on AA entries that are the model's canonical row (no reasoning-effort
+    or dated-snapshot variant) and that also appear in llm-stats. Variants are
+    excluded because AA scores a specific effort setting while llm-stats scores
+    the model's default, which is a systematic mismatch rather than noise.
+
+    ``band`` is a prediction interval for a *new* observation, not the spread of
+    the fitted residuals: it carries the leverage term, so it widens as the
+    composite moves away from the sample mean, and it uses the residual standard
+    error with n-2 degrees of freedom.
+    """
+
+    slope: float
+    intercept: float
+    residual_sd: float
+    n: int
+    x_mean: float = 0.0
+    sxx: float = 0.0
+    aa_rows_seen: int = 0
+    aa_rows_variant: int = 0
+    source: str = "llm-stats composite to AA intelligence"
+
+    def apply(self, value: float) -> float:
+        return self.intercept + self.slope * float(value)
+
+    def standard_error(self, value: float) -> float:
+        """Prediction standard error at ``value``, including the leverage term."""
+        if self.sxx <= 0:
+            return self.residual_sd
+        leverage = (float(value) - self.x_mean) ** 2 / self.sxx
+        return self.residual_sd * (1.0 + 1.0 / self.n + leverage) ** 0.5
+
+    @staticmethod
+    def t_critical(df: int, two_sided: float = 0.80) -> float:
+        """Student-t quantile by Cornish-Fisher expansion around the normal one.
+
+        Only used for the band label, so a two-term expansion is enough: at the
+        sample sizes here it lands within a thousandth of a table value.
+        """
+        if df <= 0:
+            return 1.2816
+        # two_sided = 0.80 -> 90th percentile of the normal
+        z = 1.2815515655446004
+        z3 = z**3
+        z5 = z**5
+        return z + (z3 + z) / (4 * df) + (5 * z5 + 16 * z3 + 3 * z) / (96 * df * df)
+
+    def band(self, value: float) -> tuple[float, float]:
+        """80% prediction interval for a new observation at ``value``."""
+        centre = self.apply(value)
+        half = self.t_critical(max(1, self.n - 2)) * self.standard_error(value)
+        return (centre - half, centre + half)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "method": (
+                "least squares on non-variant AA entries matched to llm-stats; "
+                "band is an 80% prediction interval, not the residual spread"
+            ),
+            "fitted_on": self.n,
+            "slope": round(self.slope, 4),
+            "intercept": round(self.intercept, 3),
+            "residual_sd": round(self.residual_sd, 3),
+            "residual_df": max(0, self.n - 2),
+            "composite_mean": round(self.x_mean, 3),
+            "band_coverage": "80%",
+            "aa_rows_seen": self.aa_rows_seen,
+            "aa_rows_variant_excluded": self.aa_rows_variant,
+            "aa_rows_used": self.n,
+            "source": self.source,
+        }
+
+
+def _is_variant_aa_name(name: str) -> bool:
+    """True for AA rows that score one effort setting or one dated snapshot."""
+    if re.search(r"\([^)]*\)", name or ""):
+        return True
+    return bool(re.search(r"\d{4}$", normalize_text(name)))
+
+
+def calibration_pairs(
+    aa_models: list[dict[str, Any]],
+    ls_entries: list[dict[str, Any]],
+    min_confidence: float,
+) -> tuple[list[tuple[float, float]], int, int]:
+    """(llm-stats composite, AA intelligence) pairs, plus row counts.
+
+    The counts are returned so a shift in AA's naming scheme shows up as a
+    number in the summary rather than as a silently thinner fit.
+    """
+    entries: list[dict[str, Any]] = []
+    for raw in ls_entries:
+        entry = raw if isinstance(raw.get("general"), (int, float)) else llmstats_entry(raw)
+        if entry is not None:
+            entries.append(entry)
+
+    pairs: list[tuple[float, float]] = []
+    seen = 0
+    variant = 0
+    for item in aa_models:
+        name = clean_text(item.get("name")) or clean_text(item.get("slug"))
+        if not name:
+            continue
+        seen += 1
+        if _is_variant_aa_name(name):
+            variant += 1
+            continue
+        intel = extract_eval(item, "artificial_analysis_intelligence_index")
+        if intel is None:
+            continue
+        aliases = aa_aliases(item)
+        best: dict[str, Any] | None = None
+        best_score = 0.0
+        for entry in entries:
+            score, _method, _src, _tgt = compare_alias_sets(aliases, llmstats_aliases(entry))
+            if score > best_score:
+                best, best_score = entry, score
+        if best is None or best_score < min_confidence:
+            continue
+        pairs.append((float(best["general"]), float(intel)))
+    return pairs, seen, variant
+
+
+def fit_calibration(
+    aa_models: list[dict[str, Any]],
+    ls_entries: list[dict[str, Any]],
+    min_confidence: float,
+    min_pairs: int = 8,
+) -> Calibration | None:
+    """Fit llm-stats -> AA, or None when the evidence is too thin to use."""
+    pairs, seen, variant = calibration_pairs(aa_models, ls_entries, min_confidence)
+    if len(pairs) < min_pairs:
+        return None
+    xs = [p[0] for p in pairs]
+    ys = [p[1] for p in pairs]
+    n = len(xs)
+    x_mean = sum(xs) / n
+    y_mean = sum(ys) / n
+    sxx = sum((x - x_mean) ** 2 for x in xs)
+    if sxx <= 0:
+        return None
+    slope = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys)) / sxx
+    if slope <= 0:
+        return None
+    intercept = y_mean - slope * x_mean
+    # n-2, not n: two parameters were estimated from the same pairs.
+    residual_sd = (sum((y - (intercept + slope * x)) ** 2 for x, y in zip(xs, ys)) / (n - 2)) ** 0.5
+    return Calibration(
+        slope,
+        intercept,
+        residual_sd,
+        n,
+        x_mean=x_mean,
+        sxx=sxx,
+        aa_rows_seen=seen,
+        aa_rows_variant=variant,
+    )
+
+
+def calibrate_published_records(
+    records: list[dict[str, Any]],
+    calibration: Calibration | None,
+    min_intelligence: float,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Place published-composite records on the AA scale, then apply the floor.
+
+    A record keeps its llm-stats composite verbatim in ``quality.llmstats``; the
+    calibrated value is written to ``intelligence`` so the register can rank it,
+    and every calibrated number carries its band and fit so it can be checked.
+    Without a fit, no record is promoted: an unplaced model must not borrow a
+    scale it was never measured on.
+    """
+    if calibration is None:
+        return [], list(records)
+
+    promoted: list[dict[str, Any]] = []
+    below: list[dict[str, Any]] = []
+    for record in records:
+        quality = record["quality"]
+        composite = float((quality.get("llmstats") or {}).get("general") or 0.0)
+        estimate = round(calibration.apply(composite), 3)
+        low, high = calibration.band(composite)
+
+        # The floor is applied to the lower prediction bound, not the point
+        # estimate: a model whose own band reaches below the floor is not
+        # promoted on a number that could be optimistic.
+        if low < min_intelligence:
+            quality["tier"] = "below-floor"
+            quality["selected"] = False
+            quality["calibration_preview"] = {
+                "aa_equivalent": estimate,
+                "band_low": round(low, 3),
+                "band_high": round(high, 3),
+                "note": "shown for context only; this record stays on the llm-stats scale",
+            }
+            below.append(record)
+            continue
+
+        quality["intelligence"] = estimate
+        quality["capability_score"] = estimate
+        # The coding and agentic indices come from the same llm-stats entry, so
+        # they are already on their own scale and need no calibration.
+        for field in ("coding", "agentic"):
+            value = (quality.get("llmstats") or {}).get(field)
+            if isinstance(value, (int, float)):
+                quality[field] = value
+        quality["score_source"] = "calibrated-llmstats"
+        quality["specialized_source"] = "llm-stats"
+        quality["score_scale"] = (
+            "calibrated from the llm-stats composite onto the AA intelligence index; "
+            "an estimate with a band, not a measurement"
+        )
+        quality["calibration"] = {
+            "composite": composite,
+            "aa_equivalent": estimate,
+            "band_low": round(low, 3),
+            "band_high": round(high, 3),
+            **calibration.as_dict(),
+        }
+        quality["tier"] = "strong"
+        record["sources"]["benchmarks"] = (
+            "llm-stats composite, calibrated to the AA scale (not an AA result)"
+        )
+        promoted.append(record)
+
+    promoted.sort(
+        key=lambda rec: (
+            rec["quality"]["intelligence"],
+            rec["quality"]["calibration"]["band_high"],
+            rec["route_count"],
+            clean_text(rec["model"]["name"]),
+        ),
+        reverse=True,
+    )
+    return promoted, below
+
+
+def _route_key(route: Any) -> tuple[str, str]:
+    """(provider, route_model) for a FreeRoute or an already-serialised dict."""
+    if isinstance(route, dict):
+        return (clean_text(route.get("provider")).lower(), clean_text(route.get("route_model")))
+    return (clean_text(getattr(route, "provider", "")).lower(), clean_text(getattr(route, "route_model", "")))
+
+
+def fill_specialized_from_llmstats(
+    records: list[dict[str, Any]],
+    ls_by_route: dict[tuple[str, str], dict[str, Any]],
+) -> int:
+    """Fill AA's empty Coding/Agentic columns from llm-stats, where it has them.
+
+    The AA free tier returns no coding or agentic index at all, so these columns
+    are otherwise always blank. llm-stats carries both for most models. The value
+    is display-only: it never feeds ``capability_score``, so the ranking stays on
+    the AA intelligence index, and the record is marked with its source.
+    """
+    filled = 0
+    for record in records:
+        quality = record["quality"]
+        if quality.get("score_source") == "calibrated-llmstats":
+            continue
+        entry = None
+        for route in record.get("free_routes") or []:
+            entry = ls_by_route.get(_route_key(route))
+            if entry:
+                break
+        if not entry:
+            continue
+        changed = False
+        for field in ("coding", "agentic"):
+            value = entry.get(field)
+            if quality.get(field) is None and isinstance(value, (int, float)):
+                quality[field] = value
+                changed = True
+        if changed:
+            quality["specialized_source"] = "llm-stats"
+            filled += 1
+    return filled
 
 
 def percentile_threshold(values: list[float], percentile: float) -> float | None:
@@ -2917,12 +3205,18 @@ def print_console(
         def fmt(v: Any) -> str:
             return f"{v:.1f}" if isinstance(v, (int, float)) else "-"
 
+        marker = "*" if q.get("score_source") == "calibrated-llmstats" else " "
         print(
-            f"{i:>2}  {model:34} {providers:24} {fmt(q.get('capability_score')):>7} "
+            f"{i:>2}  {model:34} {providers:24} {fmt(q.get('capability_score')):>6}{marker} "
             f"{fmt(q.get('intelligence')):>7} {fmt(q.get('coding')):>7} "
             f"{fmt(q.get('agentic')):>7} {rec['route_count']:>6} {ready_text:>6}"
         )
 
+    if any(r["quality"].get("score_source") == "calibrated-llmstats" for r in selected):
+        print(
+            "* calibrated from the llm-stats composite onto the AA scale: an estimate "
+            "with a band, not an Artificial Analysis result."
+        )
     if unmatched_count:
         print(f"\n{unmatched_count} free route(s) could not be confidently matched to Artificial Analysis; see unmatched JSON.")
     if free_tier_skipped:
@@ -3575,6 +3869,93 @@ def run_self_test() -> int:
         floored_info,
     )
 
+    # Calibration: a known line must be recovered, variants must be excluded, and
+    # a record below the floor must not be promoted.
+    aa_for_fit = [
+        {
+            "slug": f"m{i}",
+            "name": f"Model {i}",
+            "model_creator": {"name": "Lab"},
+            "evaluations": {"artificial_analysis_intelligence_index": 10.0 + 2.0 * i},
+        }
+        for i in range(10)
+    ]
+    aa_for_fit.append(
+        {
+            "slug": "model-3-max",
+            "name": "Model 3 (Max)",
+            "model_creator": {"name": "Lab"},
+            "evaluations": {"artificial_analysis_intelligence_index": 99.0},
+        }
+    )
+    ls_for_fit = [
+        {"model_id": f"model-{i}", "name": f"Model {i}", "index_general": 10.0 + i}
+        for i in range(10)
+    ]
+    fit = fit_calibration(aa_for_fit, ls_for_fit, 0.82)
+    assert fit is not None
+    assert fit.n == 10, fit
+    assert fit.aa_rows_seen == 11 and fit.aa_rows_variant == 1, fit
+    assert abs(fit.slope - 2.0) < 1e-6, fit
+    assert abs(fit.intercept + 10.0) < 1e-6, fit
+    assert fit.residual_sd < 1e-6, fit
+    assert fit.apply(12.0) == 14.0
+    # Without enough pairs there is no fit, and then nothing is promoted.
+    assert fit_calibration(aa_for_fit[:3], ls_for_fit, 0.82) is None
+
+    # AA naming: an effort label or a dated snapshot is a variant, a plain name is not.
+    assert _is_variant_aa_name("DeepSeek V4.1 Flash (Max)")
+    assert _is_variant_aa_name("DeepSeek V4.1 Flash 1017")
+    assert not _is_variant_aa_name("GLM-5.3-Flash")
+    assert not _is_variant_aa_name("Qwen3.8-27B")
+
+    def synthetic_record() -> dict[str, Any]:
+        return {
+            "model": {"name": "Synthetic"},
+            "quality": {"capability_score": 12.0, "intelligence": None, "llmstats": {"general": 12.0}},
+            "free_routes": [],
+            "route_count": 0,
+            "sources": {"benchmarks": ""},
+        }
+
+    promoted_pub, below_pub = calibrate_published_records([synthetic_record()], fit, 0.0)
+    assert len(promoted_pub) == 1 and below_pub == [], (promoted_pub, below_pub)
+    assert promoted_pub[0]["quality"]["score_source"] == "calibrated-llmstats"
+    calibration_block = promoted_pub[0]["quality"]["calibration"]
+    assert calibration_block["aa_equivalent"] == 14.0, calibration_block
+    assert calibration_block["band_low"] <= 14.0 <= calibration_block["band_high"], calibration_block
+    assert calibration_block["residual_df"] == 8, calibration_block
+
+    # The floor applies to the lower bound, and a record that misses it keeps its
+    # own scale: no calibrated number may be written onto it.
+    gated_pub, gated_below = calibrate_published_records([synthetic_record()], fit, 40.0)
+    assert gated_pub == [] and len(gated_below) == 1, (gated_pub, gated_below)
+    assert gated_below[0]["quality"]["selected"] is False
+    assert gated_below[0]["quality"].get("score_source") is None, gated_below
+    assert gated_below[0]["quality"]["capability_score"] == 12.0, gated_below
+    assert gated_below[0]["quality"]["intelligence"] is None, gated_below
+    assert gated_below[0]["quality"]["calibration_preview"]["aa_equivalent"] == 14.0
+    # No fit, no promotion: an unplaced model cannot borrow the scale.
+    assert calibrate_published_records([synthetic_record()], None, 0.0) == ([], [synthetic_record()])
+
+    # llm-stats fills the columns AA leaves empty, but never the ranking score.
+    aa_record = {
+        "quality": {
+            "capability_score": 30.0,
+            "intelligence": 30.0,
+            "coding": None,
+            "agentic": None,
+            "score_source": "own",
+        },
+        "free_routes": [ernie_route],
+    }
+    filled = fill_specialized_from_llmstats([aa_record], {_route_key(ernie_route): ernie_entry})
+    assert filled == 1, filled
+    assert aa_record["quality"]["coding"] == 37.9, aa_record
+    assert aa_record["quality"]["agentic"] == 38.5, aa_record
+    assert aa_record["quality"]["capability_score"] == 30.0, aa_record
+    assert aa_record["quality"]["specialized_source"] == "llm-stats"
+
     print("Self-test passed.")
     return 0
 
@@ -3802,9 +4183,18 @@ def main() -> int:
     )
     published_info["models_gathered"] = len(published_entries)
 
+    # Place the published composite on the AA scale, then hold it to the same
+    # floor as everything else. A model that clears the floor joins the register
+    # with a calibrated estimate and its band; one that does not stays in the
+    # published section, which is an index rather than a shortlist.
+    calibration = fit_calibration(aa_models, published_entries, args.llmstats_match_threshold)
+    calibrated_records, published_below = calibrate_published_records(
+        published_records, calibration, args.min_intelligence
+    )
+
     published_keys = {
         (route["provider"].lower(), route["route_model"])
-        for record in published_records
+        for record in (*published_below, *calibrated_records)
         for route in record["free_routes"]
     }
 
@@ -3814,6 +4204,34 @@ def main() -> int:
         if (route.provider.lower(), route.route_model) not in promoted_keys
         and (route.provider.lower(), route.route_model) not in published_keys
     ]
+
+    def _quality_value(record: dict[str, Any], key: str) -> float:
+        value = record["quality"].get(key)
+        return float(value) if isinstance(value, (int, float)) else -1.0
+
+    if calibrated_records:
+        selected.extend(calibrated_records)
+        selected.sort(
+            key=lambda rec: (
+                _quality_value(rec, "capability_score"),
+                _quality_value(rec, "intelligence"),
+                int(rec.get("route_count") or 0),
+            ),
+            reverse=True,
+        )
+        summary["selected_underlying_models"] = len(selected)
+
+    # AA's free tier publishes no coding or agentic index, so those columns are
+    # otherwise empty. Fill them from llm-stats where it has them, marked, and
+    # keep them out of the ranking.
+    ls_by_route: dict[tuple[str, str], dict[str, Any]] = {}
+    for route in routes:
+        entry, _confidence, _method = match_llmstats(
+            route, published_entries, args.llmstats_match_threshold
+        )
+        if entry is not None:
+            ls_by_route[_route_key(route)] = entry
+    specialized_filled = fill_specialized_from_llmstats([*selected, *rejected], ls_by_route)
 
     benchmarked_keys: set[tuple[str, str]] = set()
     matched_aa_by_route: dict[tuple[str, str], str | None] = {}
@@ -3858,11 +4276,15 @@ def main() -> int:
             "stealthmark_routes": sum(r["route_count"] for r in stealth_records),
             "stealthmark_models_gathered": len(stealth_entries),
             "stealthmark_feed_error": stealth_error,
-            "published_models": len(published_records),
-            "published_routes": sum(r["route_count"] for r in published_records),
+            "published_models": len(published_below),
+            "published_routes": sum(r["route_count"] for r in published_below),
             "published_models_gathered": len(published_entries),
             "published_feed_error": published_error,
             "published_min_score": args.min_published,
+            "calibrated_models": len(calibrated_records),
+            "calibrated_routes": sum(r["route_count"] for r in calibrated_records),
+            "specialized_scores_from_llmstats": specialized_filled,
+            "calibration": calibration.as_dict() if calibration else {"fitted": False},
             "models_dev_entries_seen": len(models_dev_rows),
             "models_dev_error": models_dev_error,
             "attribution": {
@@ -3890,8 +4312,11 @@ def main() -> int:
             "enabled": not args.skip_llmstats,
             "models_gathered": len(published_entries),
             "feed_error": published_error,
-            "models_selected": len(published_records),
-            "routes_selected": sum(r["route_count"] for r in published_records),
+            "models_selected": len(published_below),
+            "routes_selected": sum(r["route_count"] for r in published_below),
+            "models_calibrated": len(calibrated_records),
+            "models_promoted_to_register": len(calibrated_records),
+            "calibration": calibration.as_dict() if calibration else {"fitted": False},
         }
     )
 
@@ -3915,8 +4340,8 @@ def main() -> int:
     write_unbenchmarked_csv(unbenchmarked_csv, unbenchmarked)
     write_json(stealthmark_json, {"summary": summary, "models": stealth_records})
     write_stealthmark_csv(stealthmark_csv, stealth_records)
-    write_json(published_json, {"summary": summary, "models": published_records})
-    write_published_csv(published_csv, published_records)
+    write_json(published_json, {"summary": summary, "models": published_below})
+    write_published_csv(published_csv, published_below)
 
     print_console(
         selected,
@@ -3931,11 +4356,14 @@ def main() -> int:
             f"\nStealthMark: {len(stealth_entries)} model(s) scored; no free route "
             "matched a scored model above the current floor."
         )
-    print_published(published_records, min_published=args.min_published)
-    if published_entries and not published_records:
+    print_published(published_below, min_published=args.min_published)
+    if calibration:
         print(
-            f"\nPublished composite: {len(published_entries)} model(s) scored; no free "
-            "route matched a scored model above the current floor."
+            f"\nCalibrated onto the AA scale: {len(calibrated_records)} model(s) joined the register, "
+            f"{len(published_below)} stayed below the {args.min_intelligence:g} floor "
+            f"(fit on {calibration.n} pairs, residual sd {calibration.residual_sd:.2f}, "
+            f"{calibration.aa_rows_variant} variant rows excluded). A calibrated row is an estimate "
+            "with an 80% prediction interval, not an AA result."
         )
     print_unbenchmarked(unbenchmarked, min_intelligence=args.min_intelligence)
     print("\nWrote:")

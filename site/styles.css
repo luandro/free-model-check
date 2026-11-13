@@ -588,6 +588,32 @@ td.num {
   font: 400 var(--text-sm)/1.5 var(--font-body);
 }
 
+/* a calibrated standing is an estimate: the band travels with the number */
+.score-band {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-muted);
+  font: 400 0.75rem/1.2 var(--font-figure);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.tag {
+  display: inline-block;
+  margin-left: var(--space-xs);
+  padding: 0 4px;
+  border: var(--rule-hair) solid var(--color-rule-2);
+  color: var(--color-muted);
+  font: 400 0.6875rem/1.5 var(--font-body);
+  vertical-align: middle;
+}
+
+.th-src {
+  margin-left: 4px;
+  color: var(--color-muted);
+  font: 400 0.6875rem/1 var(--font-body);
+}
+
 /* ---------- the register table ---------- */
 
 .table-wrap {

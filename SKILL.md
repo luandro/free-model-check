@@ -91,7 +91,9 @@ All files use `--output-prefix` (default `free_models`) and are gitignored:
    - **Completeness gate**: Partial runs (`countedResults != prompts`, `partial: true`, or non-empty `missingFamilies`) are rejected.
 3. **Published composite (llm-stats section)**:
    - Uses the llm-stats composite (`0–100`, relative ranking) as published evidence (`score_source: "published-composite"`). It is a **different scale** from the AA intelligence index and is never written into the AA columns.
+   - **Calibrated placement**: a least-squares fit (`Calibration`, `fit_calibration`) maps the composite onto the AA index using only canonical AA rows, excluding effort variants and dated snapshots (counted in `summary.calibration`). A model whose **lower 80% prediction bound** clears `--min-intelligence` joins the register as `score_source: "calibrated-llmstats"` with `quality.calibration` carrying the composite, estimate, band and fit. A model that misses it keeps `published-composite` and gains only `calibration_preview`, so no calibrated number is ever written onto an unplaced model.
    - **Never overrides AA or StealthMark**: lane order is AA, then StealthMark, then llm-stats; a route appears in exactly one lane.
-   - **Separate floor**: `--min-published` (default `0`), independent of `--min-intelligence`.
+   - **Coding and Agentic**: `fill_specialized_from_llmstats` fills these from llm-stats where AA publishes none, marked `specialized_source: "llm-stats"`, and never feeds `capability_score`.
+   - **Separate floor**: `--min-published` (default `0`) for the section itself; the calibrated promotion uses `--min-intelligence` against the lower prediction bound.
 4. **Free but unbenchmarked**:
    - Lists text chat models confirmed agent-ready (`tool_call: true` and context >= `65536`) that lack AA, StealthMark and llm-stats scores (`no AA entry` or `AA unscored`), only when `--include-unscored` is enabled.

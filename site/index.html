@@ -95,7 +95,6 @@
     <div class="container">
       <div class="head-block">
         <h2>The register</h2>
-        <p class="lead">Ranked by score.</p>
       </div>
 
       <div class="controls" role="search" aria-label="Filter the register">
@@ -142,8 +141,8 @@
                 <th class="col-model" scope="col">Model</th>
                 <th class="col-score" scope="col">Score</th>
                 <th class="col-score" scope="col">Intel</th>
-                <th class="col-score" scope="col">Code</th>
-                <th class="col-score" scope="col">Agent</th>
+                <th class="col-score" scope="col">Code<span class="th-src" title="llm-stats index, not Artificial Analysis">ls</span></th>
+                <th class="col-score" scope="col">Agent<span class="th-src" title="llm-stats index, not Artificial Analysis">ls</span></th>
                 <th class="col-routes" scope="col">Routes</th>
                 <th class="col-ready" scope="col">Ready</th>
                 <th class="col-provider" scope="col">Provider</th>
@@ -152,6 +151,7 @@
             <tbody id="rows-aa"></tbody>
           </table>
         </div>
+        <p class="note">Code and Agent are llm-stats indices and never feed the score. A <span class="tag">calibrated</span> row&rsquo;s band is its 80% prediction interval.</p>
       </section>
 
       <section class="part" id="section-stealthmark" aria-label="StealthMark proxy models" hidden>
@@ -184,8 +184,8 @@
                 <th class="col-rank" scope="col">No.</th>
                 <th class="col-model" scope="col">Model</th>
                 <th class="col-score" scope="col">Comp</th>
-                <th class="col-score" scope="col">Code</th>
-                <th class="col-score" scope="col">Agent</th>
+                <th class="col-score" scope="col">Code<span class="th-src">ls</span></th>
+                <th class="col-score" scope="col">Agent<span class="th-src">ls</span></th>
                 <th class="col-routes" scope="col">Routes</th>
                 <th class="col-ready" scope="col">Ready</th>
                 <th class="col-provider" scope="col">Provider</th>
@@ -226,26 +226,26 @@
   <section class="section section-band" id="method">
     <div class="container">
       <div class="head-block">
-        <h2>How a route earns its entry</h2>
-        <p class="lead">Three claims about price, one about quality.</p>
+        <h2>How a route earns entry</h2>
+        <p class="lead">Price first, then quality.</p>
       </div>
 
       <div class="rules">
         <article class="rule">
           <h3><span class="rule-mark" aria-hidden="true">i</span><span class="rule-text">Zero priced, dimension by dimension</span></h3>
-          <p>A zero for every billable field. A missing pricing object is not a zero.</p>
+          <p>A zero on every billable field; a missing price is not one.</p>
         </article>
         <article class="rule">
-          <h3><span class="rule-mark" aria-hidden="true">ii</span><span class="rule-text">Read as decimals, never floats</span></h3>
-          <p>Prices are parsed as decimals, so a tiny published price cannot round down to zero.</p>
+          <h3><span class="rule-mark" aria-hidden="true">ii</span><span class="rule-text">Decimals, not floats</span></h3>
+          <p>Decimals, so a tiny price cannot round down to zero.</p>
         </article>
         <article class="rule">
           <h3><span class="rule-mark" aria-hidden="true">iii</span><span class="rule-text">Claims that are not proof</span></h3>
-          <p>A scanner claim or a lagging mirror is marked with a dagger and left out by default.</p>
+          <p>A scanner claim or a lagging mirror is marked and left out.</p>
         </article>
         <article class="rule">
           <h3><span class="rule-mark" aria-hidden="true">iv</span><span class="rule-text">The intelligence floor</span></h3>
-          <p>Artificial Analysis scores the model, not the route. A model below the floor is hidden.</p>
+          <p>AA scores the model, not the route. Below the floor is hidden.</p>
         </article>
       </div>
     </div>
@@ -255,7 +255,7 @@
     <div class="container">
       <div class="head-block">
         <h2>Where the figures come from</h2>
-        <p class="lead">Seven feeds, read fresh on every run.</p>
+        <p class="lead">Seven feeds, read fresh each run.</p>
       </div>
 
       <ul class="source-list">
