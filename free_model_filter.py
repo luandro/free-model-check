@@ -806,6 +806,14 @@ def compare_alias_sets(source_aliases: list[str], target_aliases: list[str]) -> 
             if ns == nt:
                 score, method = 1.0, "exact"
             elif min(len(ns), len(nt)) >= 8 and (ns in nt or nt in ns):
+                # A containment match may only add a size, build or date suffix
+                # ("qwen3-32b" in "qwen3-32b-30b-a3b"). If the extra part spells a
+                # word it is a different variant, not a longer name for the same
+                # model: "qwen3-32b" is not "qwen3-32b-coder".
+                longer, shorter = (nt, ns) if len(nt) > len(ns) else (ns, nt)
+                extra = longer.replace(shorter, "", 1)
+                if not re.fullmatch(r"[0-9.\-ab]*", extra):
+                    continue
                 ratio_len = min(len(ns), len(nt)) / max(len(ns), len(nt))
                 score = 0.91 + 0.07 * ratio_len
                 method = "containment"
@@ -852,12 +860,45 @@ def match_item(
     if best[0] < min_confidence:
         return MatchResult(None, best[0], f"below-threshold:{best[2]}", best[3], best[4])
 
-    # Exact and containment matches are allowed even with a small margin. Fuzzy
-    # matching requires separation from the runner-up to avoid family collisions.
-    if best[2] == "fuzzy" and (best[0] - second_score) < min_margin:
-        return MatchResult(None, best[0], "ambiguous-fuzzy", best[3], best[4])
+    # A containment match is one alias sitting inside a longer one ("qwen3-32b"
+    # inside "qwen3-32b-coder"). That is evidence, not identity, so it needs the
+    # same separation from the runner-up as a fuzzy match: without it, a base
+    # model can silently inherit a sibling's score whenever the sibling is the
+    # only candidate. An exact match needs no margin.
+    if best[2] != "exact" and (best[0] - second_score) < min_margin:
+        return MatchResult(None, best[0], f"ambiguous-{best[2]}", best[3], best[4])
 
     return MatchResult(best[5], best[0], best[2], best[3], best[4])
+
+
+def best_alias_match(
+    source_aliases: list[str],
+    candidates: list[dict[str, Any]],
+    alias_func,
+    min_confidence: float,
+    min_margin: float = 0.035,
+) -> tuple[dict[str, Any] | None, float, str]:
+    """Best candidate by alias, rejecting a non-exact winner without a clear lead.
+
+    ``match_item`` applies this rule for AA; the stealth and published lanes choose
+    their candidate with a plain maximum, which would let a containment match win
+    unchallenged. They share this helper so the rule cannot drift between lanes.
+    """
+    ranked: list[tuple[float, str, dict[str, Any]]] = []
+    for item in candidates:
+        score, method, _src, _tgt = compare_alias_sets(source_aliases, alias_func(item))
+        if score > 0:
+            ranked.append((score, method, item))
+    if not ranked:
+        return None, 0.0, "none"
+    ranked.sort(key=lambda t: t[0], reverse=True)
+    best_score, best_method, best_item = ranked[0]
+    second_score = ranked[1][0] if len(ranked) > 1 else 0.0
+    if best_score < min_confidence:
+        return None, best_score, f"below-threshold:{best_method}"
+    if best_method != "exact" and (best_score - second_score) < min_margin:
+        return None, best_score, f"ambiguous-{best_method}"
+    return best_item, best_score, best_method
 
 
 def extract_eval(item: dict[str, Any], key: str) -> float | None:
@@ -1039,15 +1080,11 @@ def match_stealthmark(
     that belongs to another model (the union would hand Ox Alpha's GLM score to
     space-bunny-alpha, for example).
     """
-    best: dict[str, Any] | None = None
-    best_score = 0.0
-    best_method = "none"
-    for entry in entries:
-        score, method, _src, _tgt = compare_alias_sets(route.aliases, stealthmark_aliases(entry))
-        if score > best_score:
-            best, best_score, best_method = entry, score, method
-    if best is None or best_score < min_confidence:
-        return None, best_score, f"below-threshold:{best_method}"
+    best, best_score, best_method = best_alias_match(
+        route.aliases, entries, stealthmark_aliases, min_confidence
+    )
+    if best is None:
+        return None, best_score, best_method
     return best, best_score, best_method
 
 
@@ -1466,15 +1503,11 @@ def match_llmstats(
     StealthMark does: a union of aliases would let one route claim another
     model's score.
     """
-    best: dict[str, Any] | None = None
-    best_score = 0.0
-    best_method = "none"
-    for entry in entries:
-        score, method, _src, _tgt = compare_alias_sets(route.aliases, llmstats_aliases(entry))
-        if score > best_score:
-            best, best_score, best_method = entry, score, method
-    if best is None or best_score < min_confidence:
-        return None, best_score, f"below-threshold:{best_method}"
+    best, best_score, best_method = best_alias_match(
+        route.aliases, entries, llmstats_aliases, min_confidence
+    )
+    if best is None:
+        return None, best_score, best_method
     return best, best_score, best_method
 
 
@@ -1804,14 +1837,10 @@ def calibration_pairs(
         intel = extract_eval(item, "artificial_analysis_intelligence_index")
         if intel is None:
             continue
-        aliases = aa_aliases(item)
-        best: dict[str, Any] | None = None
-        best_score = 0.0
-        for entry in entries:
-            score, _method, _src, _tgt = compare_alias_sets(aliases, llmstats_aliases(entry))
-            if score > best_score:
-                best, best_score = entry, score
-        if best is None or best_score < min_confidence:
+        best, _score, _method = best_alias_match(
+            aa_aliases(item), entries, llmstats_aliases, min_confidence
+        )
+        if best is None:
             continue
         pairs.append((float(best["general"]), float(intel)))
     return pairs, seen, variant
@@ -3810,6 +3839,21 @@ def run_self_test() -> int:
     assert weak_records == [] and weak_info["models_below_floor"] == 1, (
         weak_records,
         weak_info,
+    )
+
+    # A word suffix marks a different variant, so it is not a containment match:
+    # a base model must not inherit a sibling's score. A size or build suffix is.
+    assert (
+        compare_alias_sets(alias_variants("qwen3-32b"), alias_variants("qwen3-32b-coder"))[1]
+        == "none"
+    )
+    assert (
+        compare_alias_sets(alias_variants("qwen3-32b"), alias_variants("qwen3-32b-30b-a3b"))[1]
+        == "containment"
+    )
+    assert (
+        compare_alias_sets(alias_variants("north-mini-code"), alias_variants("north-mini-code-1.0"))[1]
+        == "containment"
     )
 
     # llm-stats: the leaderboard ships as a React flight stream, so the parser has

@@ -2,7 +2,7 @@
   "summary": {
     "artificial_analysis_index_version": 5.0,
     "aa_models_considered": 739,
-    "free_underlying_models_matched": 14,
+    "free_underlying_models_matched": 11,
     "selected_underlying_models": 6,
     "intelligence_floor": 25.0,
     "intelligence_floor_source": "--min-intelligence",
@@ -33,18 +33,18 @@
       "aa_catalogue_models_with_intelligence_score": 126,
       "aa_catalogue_models_with_coding_or_agentic_score": 0,
       "coding_agentic_available": false,
-      "free_candidates_scored": 11,
-      "free_candidates_scored_own": 10,
+      "free_candidates_scored": 9,
+      "free_candidates_scored_own": 8,
       "free_candidates_scored_inherited": 1,
-      "free_candidates_unscored": 3,
+      "free_candidates_unscored": 2,
       "adaptive_pool": "free candidates with a score"
     },
     "stealthmark": {
       "models_gathered": 54,
-      "routes_matched": 0,
+      "routes_matched": 2,
       "models_promoted": 0,
       "selected_models": 0,
-      "models_below_floor": 0,
+      "models_below_floor": 2,
       "models_skipped_not_agent_ready": 0,
       "models_skipped_not_chat": 0,
       "min_intelligence": 25.0,
@@ -55,8 +55,8 @@
       "models_selected": 0,
       "routes_selected": 0
     },
-    "generated_unix": 1794529692,
-    "runtime_seconds": 90.807,
+    "generated_unix": 1794554976,
+    "runtime_seconds": 65.981,
     "sources_requested": "all",
     "routes_by_source": {
       "f24": 86,
@@ -65,7 +65,7 @@
     },
     "source_errors": [],
     "free_routes_seen": 28,
-    "free_routes_unmatched_to_aa": 11,
+    "free_routes_unmatched_to_aa": 14,
     "routes_by_verification": {
       "zero-priced": 28,
       "free-tier": 0,
@@ -75,32 +75,32 @@
     "mirror_routes_skipped": 0,
     "include_free_tier": false,
     "include_unscored": true,
-    "unbenchmarked_models": 8,
-    "unbenchmarked_routes": 8,
+    "unbenchmarked_models": 9,
+    "unbenchmarked_routes": 9,
     "stealthmark_models": 0,
     "stealthmark_routes": 0,
     "stealthmark_models_gathered": 54,
     "stealthmark_feed_error": null,
-    "published_models": 3,
-    "published_routes": 3,
+    "published_models": 5,
+    "published_routes": 5,
     "published_models_gathered": 417,
     "published_feed_error": null,
     "published_min_score": 0.0,
     "calibrated_models": 1,
     "calibrated_routes": 1,
-    "specialized_scores_from_llmstats": 12,
+    "specialized_scores_from_llmstats": 10,
     "calibration": {
       "method": "least squares on non-variant AA entries matched to llm-stats; band is an 80% prediction interval, not the residual spread",
-      "fitted_on": 22,
-      "slope": 0.9404,
-      "intercept": -16.46,
-      "residual_sd": 4.236,
-      "residual_df": 20,
-      "composite_mean": 36.209,
+      "fitted_on": 21,
+      "slope": 0.9391,
+      "intercept": -16.423,
+      "residual_sd": 4.303,
+      "residual_df": 19,
+      "composite_mean": 35.829,
       "band_coverage": "80%",
       "aa_rows_seen": 739,
       "aa_rows_variant_excluded": 452,
-      "aa_rows_used": 22,
+      "aa_rows_used": 21,
       "source": "llm-stats composite to AA intelligence"
     },
     "models_dev_entries_seen": 614,
@@ -115,9 +115,9 @@
     },
     "published": {
       "models_gathered": 417,
-      "routes_matched": 4,
-      "models_promoted": 4,
-      "selected_models": 4,
+      "routes_matched": 6,
+      "models_promoted": 6,
+      "selected_models": 6,
       "models_below_floor": 0,
       "models_skipped_not_agent_ready": 0,
       "models_skipped_not_chat": 0,
@@ -126,22 +126,22 @@
       "source_url": "https://llm-stats.com/leaderboards/llm-leaderboard",
       "enabled": true,
       "feed_error": null,
-      "models_selected": 3,
-      "routes_selected": 3,
+      "models_selected": 5,
+      "routes_selected": 5,
       "models_calibrated": 1,
       "models_promoted_to_register": 1,
       "calibration": {
         "method": "least squares on non-variant AA entries matched to llm-stats; band is an 80% prediction interval, not the residual spread",
-        "fitted_on": 22,
-        "slope": 0.9404,
-        "intercept": -16.46,
-        "residual_sd": 4.236,
-        "residual_df": 20,
-        "composite_mean": 36.209,
+        "fitted_on": 21,
+        "slope": 0.9391,
+        "intercept": -16.423,
+        "residual_sd": 4.303,
+        "residual_df": 19,
+        "composite_mean": 35.829,
         "band_coverage": "80%",
         "aa_rows_seen": 739,
         "aa_rows_variant_excluded": 452,
-        "aa_rows_used": 22,
+        "aa_rows_used": 21,
         "source": "llm-stats composite to AA intelligence"
       }
     }
@@ -232,7 +232,7 @@
     {
       "model": {
         "name": "Recursive: Flint (free)",
-        "models_dev_id": "recursive/flint",
+        "models_dev_id": "recursive/flint-v1.0:free",
         "description": "Flint is an open-weight mixture-of-experts model from Recursive, with about 2.5B active parameters out of 40B total, built by Recursive's autoresearch system Eureka Machine for coding agents. It is suited..."
       },
       "benchmark": {
@@ -350,6 +350,47 @@
       ],
       "sources": [
         "OpenCode provider catalogue (zero-priced)"
+      ]
+    },
+    {
+      "model": {
+        "name": "Apodex: Apodex 1.1 Mini (free)",
+        "models_dev_id": "apodex/apodex-1.1-mini",
+        "description": "Apodex 1.1 Mini is a reasoning-first model from Apodex, built for complex, long-horizon research and forecasting tasks. It works directly with files, data, code, and tools to produce verifiable results,..."
+      },
+      "benchmark": {
+        "status": "no-aa-entry",
+        "aa_slug": null
+      },
+      "capabilities": {
+        "context": 262144,
+        "tool_call": true,
+        "reasoning": true,
+        "release_date": "2026-08-24",
+        "agent_ready": true
+      },
+      "stealth": false,
+      "legacy": false,
+      "free_routes": [
+        {
+          "provider": "openrouter",
+          "route_model": "apodex/apodex-1.1-mini:free",
+          "model_name": "Apodex: Apodex 1.1 Mini (free)",
+          "api_base": null,
+          "source": "openrouter",
+          "source_label": "OpenRouter public models API (zero-priced)",
+          "verification": "zero-priced",
+          "verified_free": true,
+          "requires_provider_key": false,
+          "stale_mirror": false
+        }
+      ],
+      "route_count": 1,
+      "providers": [
+        "openrouter"
+      ],
+      "sources": [
+        "OpenRouter public models API (zero-priced)"
       ]
     },
     {
