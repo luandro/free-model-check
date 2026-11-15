@@ -144,6 +144,7 @@ Data source attribution:
     StealthMark:         https://stealthmodels.com/
     models.dev:          https://models.dev/
     F24 SALES:           https://www.f24-sales.com/
+    Kilo Gateway:        https://kilo.ai/docs/gateway/models-and-providers
 """
 
 from __future__ import annotations
@@ -181,6 +182,7 @@ DEFAULT_AA_URL = "https://artificialanalysis.ai/api/v2/language/models/free"
 DEFAULT_MODELS_DEV_URL = "https://models.dev/models.json"
 DEFAULT_OPENROUTER_URL = "https://openrouter.ai/api/v1/models"
 DEFAULT_OPENCODE_URL = "https://opencode.ai/zen/v1/models"
+DEFAULT_KILO_URL = "https://ai-gateway.kilo.ai/api/v1/models"
 # stealthmodels.com publishes StealthMark ratings as a public JSON feed. Stealth and
 # newly revealed models (e.g. Crouton Alpha) have no Artificial Analysis entry, so
 # without an external benchmark they would otherwise never pass the quality gate.
@@ -250,6 +252,10 @@ class FreeRoute:
     # "mirror-listed": a stale third-party mirror (models.dev) claims zero cost,
     #   which the provider does not confirm.
     verification: str = "zero-priced"
+    # The provider says it may use prompts and outputs to improve its service.
+    # Not a price question, but a real condition of the free route, so it travels
+    # with the route rather than being discovered later.
+    trains_on_prompts: bool = False
 
 
 @dataclass
@@ -540,6 +546,7 @@ def route_free_fields(route: FreeRoute) -> dict[str, Any]:
         # key whose usage may bill at list price.
         "requires_provider_key": route.verification == "free-tier",
         "stale_mirror": route.verification == "mirror-listed",
+        "trains_on_prompts": bool(getattr(route, "trains_on_prompts", False)),
     }
 
 
@@ -630,6 +637,56 @@ def fetch_openrouter_routes(base_url: str) -> list[FreeRoute]:
                 raw_index=len(routes),
                 source="openrouter",
                 metadata=_openrouter_metadata(entry, rid, name or rid),
+            )
+        )
+    return routes
+
+
+def fetch_kilo_routes(base_url: str) -> list[FreeRoute]:
+    """Free routes from the Kilo Gateway catalogue.
+
+    Kilo serves an OpenRouter-shaped ``{"data": [...]}`` payload, but it adds an
+    explicit ``isFree`` flag and marks routers with ``autoRouting``. The flag is
+    the provider's own claim, so the price object still has to prove it: a free
+    model that published a non-zero amount would be rejected here.
+
+    Two entries are routers, not models (``kilo-auto/free`` and
+    ``openrouter/free``): they resolve to a different model per request, so a
+    score attached to them would describe nothing.
+    """
+    doc = http_get_json(base_url, headers={"Accept": "application/json"}, exact_numbers=True)
+    entries = doc.get("data") if isinstance(doc, dict) else doc
+    if not isinstance(entries, list):
+        raise RuntimeError("Unexpected Kilo models response shape")
+    routes: list[FreeRoute] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("isFree") is not True:
+            continue
+        rid = clean_text(entry.get("id"))
+        if not rid or rid.endswith("/free") or rid.endswith("/auto") or entry.get("autoRouting"):
+            continue
+        pricing = entry.get("pricing")
+        if not isinstance(pricing, dict):
+            continue
+        if not prices_all_zero(pricing, required=(("prompt",), ("completion",))):
+            continue
+        if _openrouter_free_rejection(entry):
+            continue
+        architecture = entry.get("architecture") if isinstance(entry.get("architecture"), dict) else {}
+        if architecture.get("output_modalities") != ["text"]:
+            continue
+        name = clean_text(entry.get("name"))
+        routes.append(
+            FreeRoute(
+                provider="kilo",
+                route_model=rid,
+                model_name=name or rid,
+                api_base=None,
+                aliases=alias_variants(rid, name),
+                raw_index=len(routes),
+                source="kilo",
+                metadata=_openrouter_metadata(entry, rid, name or rid),
+                trains_on_prompts=bool(entry.get("mayTrainOnYourPrompts")),
             )
         )
     return routes
@@ -785,6 +842,11 @@ def extract_parameter_sizes(values: Iterable[str]) -> set[str]:
     return sizes
 
 
+def version_tokens(value: str) -> set[str]:
+    """Dotted version numbers in an alias, e.g. "ling-3.2-flash" -> {"3.2"}."""
+    return set(re.findall(r"(?<![\d.])(\d+\.\d+)(?![\d.])", (value or "").lower()))
+
+
 def compare_alias_sets(source_aliases: list[str], target_aliases: list[str]) -> tuple[float, str, str | None, str | None]:
     best_score = 0.0
     best_method = "none"
@@ -795,6 +857,19 @@ def compare_alias_sets(source_aliases: list[str], target_aliases: list[str]) -> 
     target_sizes = extract_parameter_sizes(target_aliases)
     if source_sizes and target_sizes and source_sizes.isdisjoint(target_sizes):
         return 0.0, "parameter-size-mismatch", None, None
+
+    # A version number is an identity, not a detail: "ling-3.2-flash" is a
+    # different model from "ling-3.1-flash" however similar the names read. When
+    # both sides name a version and they disagree, no amount of string similarity
+    # makes them the same model.
+    source_versions: set[str] = set()
+    for alias in source_aliases:
+        source_versions |= version_tokens(alias)
+    target_versions: set[str] = set()
+    for alias in target_aliases:
+        target_versions |= version_tokens(alias)
+    if source_versions and target_versions and source_versions.isdisjoint(target_versions):
+        return 0.0, "version-mismatch", None, None
 
     for src in source_aliases:
         ns = normalize_text(src)
@@ -2740,6 +2815,7 @@ def route_source_label(source: str) -> str:
         "f24": "F24 SALES LiteLLM feed (free-tier claim)",
         "openrouter": "OpenRouter public models API (zero-priced)",
         "opencode": "OpenCode provider catalogue (zero-priced)",
+        "kilo": "Kilo Gateway public models API (zero-priced)",
     }.get(clean_text(source).lower(), clean_text(source) or "unknown")
 
 
@@ -3387,7 +3463,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--source",
         choices=SOURCE_CHOICES,
         default="all",
-        help="Where free routes are discovered from: all, f24, openrouter, or opencode (default: all)",
+        help="Where free routes are discovered from: all, f24, openrouter, opencode, or kilo (default: all)",
     )
     p.add_argument("--source-url", help="Override the discovery URL for a single --source (not usable with --source all)")
     p.add_argument(
@@ -3968,6 +4044,21 @@ def run_self_test() -> int:
         == "containment"
     )
 
+    # A version number is an identity: 3.2 is not 3.1, however close the names read.
+    assert (
+        compare_alias_sets(
+            alias_variants("inclusionai/ling-3.2-flash:free", "Ling 3.2 Flash"),
+            alias_variants("inclusionai/ling-3.1-flash", "Ling 3.1 Flash"),
+        )[1]
+        == "version-mismatch"
+    )
+    assert (
+        compare_alias_sets(
+            alias_variants("deepseek-v4.1-flash"), alias_variants("deepseek-v4-1-flash-1017")
+        )[1]
+        == "containment"
+    )
+
     # llm-stats: the leaderboard ships as a React flight stream, so the parser has
     # to undo the JS string escapes before the row objects exist.
     flight = (
@@ -4146,7 +4237,7 @@ def run_self_test() -> int:
     return 0
 
 
-SOURCE_CHOICES = ("all", "f24", "openrouter", "opencode")
+SOURCE_CHOICES = ("all", "f24", "openrouter", "opencode", "kilo")
 
 
 def collect_routes(args: argparse.Namespace) -> tuple[list[FreeRoute], dict[str, int], list[str]]:
@@ -4166,6 +4257,8 @@ def collect_routes(args: argparse.Namespace) -> tuple[list[FreeRoute], dict[str,
                 found = fetch_f24(args)
             elif source == "openrouter":
                 found = fetch_openrouter_routes(args.source_url or DEFAULT_OPENROUTER_URL)
+            elif source == "kilo":
+                found = fetch_kilo_routes(args.source_url or DEFAULT_KILO_URL)
             else:
                 found = fetch_opencode_routes(args.source_url or DEFAULT_OPENCODE_URL)
         except Exception as exc:
@@ -4482,6 +4575,8 @@ def main() -> int:
                 "Artificial Analysis": "https://artificialanalysis.ai/",
                 "F24 SALES": "https://www.f24-sales.com/",
                 "OpenRouter": "https://openrouter.ai/",
+                "OpenCode Zen": "https://opencode.ai/",
+                "Kilo Gateway": "https://kilo.ai/docs/gateway/models-and-providers",
                 "models.dev": "https://models.dev/",
                 "StealthMark": "https://stealthmodels.com/",
                 "llm-stats": "https://llm-stats.com/methodology/llm-stats-score",

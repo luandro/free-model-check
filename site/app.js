@@ -232,6 +232,7 @@
       var note = [];
       if (route.verification) note.push(route.verification);
       if (route.source) note.push(route.source);
+      if (route.trains_on_prompts) note.push('may train on prompts');
       return '<li><span class="route-id">' + esc(route.route_model) + '</span>' +
         '<span class="route-note">' + esc(note.join(', ')) + '</span></li>';
     }).join('');

@@ -74,6 +74,7 @@ All files use `--output-prefix` (default `free_models`) and are gitignored:
 
 - `free_models.json` / `free_models.csv` — Selected AA-scored models and their free routes, ranked by `--sort-by` (`score`, `coding`, `intelligence`, or `agentic`).
 - `free_models_stealthmark.json` / `free_models_stealthmark.csv` — Free routes scored by StealthMark (`stealthmodels.com`) for models that have no AA entry.
+- Kilo Gateway (`https://ai-gateway.kilo.ai/api/v1/models`, no auth) is a fourth discovery feed: OpenRouter-shaped, with an explicit `isFree` flag. Routers (`kilo-auto/free`, `openrouter/free`) are dropped, and a route that may train on prompts carries `trains_on_prompts: true`.
 - `free_models_published.json` / `free_models_published.csv` — Free routes with an llm-stats published composite (`published-composite`) and no AA or StealthMark score.
 - `free_models_unbenchmarked.json` / `free_models_unbenchmarked.csv` — Free, agent-ready chat models with no AA or StealthMark score (populated when `--include-unscored` is set; stealth models sorted first, legacy models last).
 - `free_models_diagnostics.json` — AA-matched models rejected by the quality or agent-readiness gates, with `reasons_not_selected`.

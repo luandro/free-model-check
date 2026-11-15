@@ -50,6 +50,7 @@ python3 free_model_filter.py
 # One discovery source
 python3 free_model_filter.py --source openrouter
 python3 free_model_filter.py --source opencode
+python3 free_model_filter.py --source kilo
 
 # Filter by provider/host substring
 python3 free_model_filter.py --provider deepseek
@@ -212,6 +213,7 @@ is sent only to the Artificial Analysis API. Never commit `.env` or a key.
 - models.dev: https://models.dev/
 - StealthMark: https://stealthmodels.com/
 - llm-stats: https://llm-stats.com/ (methodology: https://llm-stats.com/methodology/llm-stats-score)
+- Kilo Gateway: https://kilo.ai/docs/gateway/models-and-providers
 
 ## Contributing
 
