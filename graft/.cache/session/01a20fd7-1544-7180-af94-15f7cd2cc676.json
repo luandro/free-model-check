@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Third pass on scripts/free-models-probe.py in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nFixes since your last review:\n1. CLI child now registered in the live-child registry (register_child(process)) and forgotten only AFTER termination; probe_in_child kills before forgetting.\n2. CLI stderr now redacted via first_line(stderr, secrets); run_cli_probe takes secrets; dispatch_probe passes them.\n3. first_line redacts BEFORE truncating to 200 chars.\n4. Same-host redirect now also blocks port changes.\n5. {\"error\":null,\"choices\":[{\"message\":{}}]} now returns available=null ('empty message in body').\n6. set_nonblocking returns bool; if fcntl fails the write is refused instead of risking a blocking write.\n\nVerify these are complete and correct, and flag anything remaining. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}

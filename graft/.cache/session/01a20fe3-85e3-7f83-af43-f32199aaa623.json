@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Fourth pass on scripts/free-models-probe.py in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nWhat changed since your last review, and why:\n1. The cross-process registry file was REMOVED entirely. Reason: on this host signals to a pid outside the caller's process tree are silently dropped (verified: killpg and kill both no-op while the target keeps running), so the registry could never work and only gave false safety.\n2. CLI probes now REQUIRE a PID namespace (bwrap). namespace_command() returning None makes the route available=null ('no pid namespace available (bwrap missing)') instead of probing unconfined. Inside the namespace the CLI is pid 1, so tearing it down kills the whole tree including setsid() escapees (verified: a setsid grandchild no longer survives).\n3. run_cli_probe no longer calls register_child/forget_child; the namespace is the containment.\n4. run_cli_probe now takes secrets and redacts CLI stderr via first_line(stderr, secrets).\n5. The normal OpenCode request now carries secrets (OPENROUTER_API_KEY) so the child can redact.\n6. first_line redacts before truncating; error_message redacts before truncating; parent fallbacks (failed_probe/parse_probe_output) take secrets.\n7. Redirect guard compares port using 'is not None' so an explicit port 0 is not treated as default.\n8. Empty message object returns available=null.\n\nConfirm the containment story is now sound and nothing regressed. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}
