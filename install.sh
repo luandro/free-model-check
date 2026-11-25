@@ -735,24 +735,46 @@ mkdir -p "$STAGE"
 # Bootstrap skips the probe when the catalogue was not published by THIS run. A
 # manifest entry from an earlier run is not evidence, so track publication here.
 CATALOGUE_PUBLISHED=0
+# Publish a staged file to $STATE_DIR without ever clobbering an existing path.
+# Uses a hard link, which fails atomically when the destination exists, so there
+# is no check-then-rename window. Returns 0 when published, 1 when skipped.
+publish_no_clobber() {
+    local src="$1" dest="$2"
+    if [[ -e "$dest" || -L "$dest" ]]; then
+        return 1
+    fi
+    if ln "$src" "$dest" 2>/dev/null; then
+        rm -f "$src"
+        return 0
+    fi
+    # A filesystem without hard links: fall back to a guarded rename.
+    if [[ -e "$dest" || -L "$dest" ]]; then
+        return 1
+    fi
+    mv -f "$src" "$dest"
+    return 0
+}
+
 publish_catalogue() {
     local src
     for src in "$STAGE"/free_models*; do
         [[ -f "$src" ]] || continue
         local dest="$STATE_DIR/$(basename "$src")"
-        # -L too: a dangling symlink is still a user-owned path.
-        if [[ -e "$dest" || -L "$dest" ]]; then
+        # Hash the staged bytes before publishing, so the recorded digest
+        # describes exactly what we are about to move.
+        local src_hash
+        src_hash="$(sha_of "$src")"
+        if ! publish_no_clobber "$src" "$dest"; then
             printf 'WARNING: %s already exists; not overwriting\n' "$dest" >&2
             # Drop the skipped file so a later --update does not see a non-empty
             # staging dir and refuse to proceed.
             rm -f "$src"
             continue
         fi
-        mv "$src" "$dest"
-        manifest_add "[files]" "$dest sha256:$(sha_of "$dest")"
+        manifest_add "[files]" "$dest sha256:$src_hash"
         # Only the catalogue itself counts: publishing a sibling CSV must not
         # make bootstrap probe a pre-existing free_models.json.
-        if [[ "$(basename "$src")" == "free_models.json" ]]; then
+        if [[ "$(basename "$dest")" == "free_models.json" ]]; then
             CATALOGUE_PUBLISHED=1
         fi
     done
@@ -813,15 +835,16 @@ if [[ $stage_ready -eq 1 ]]; then
         printf 'WARNING: bootstrap probe failed (exit %d); keeping existing state\n' "$probe_rc" >&2
         rm -f "$PROBE_STATE"
     elif [[ $state_existed -eq 0 && -f "$PROBE_STATE" ]]; then
-        # Re-check the destination: if something appeared there during the sweep,
-        # keep it rather than clobbering it.
-        if [[ -e "$STATE_DIR/free_models_junior.json" || -L "$STATE_DIR/free_models_junior.json" ]]; then
-            printf 'WARNING: %s appeared during the sweep; not overwriting\n' \
+        # Hash the staged bytes first, then publish atomically: a file that
+        # appeared during the sweep is never clobbered, and the recorded digest
+        # describes what we actually moved.
+        probe_hash="$(sha_of "$PROBE_STATE")"
+        if publish_no_clobber "$PROBE_STATE" "$STATE_DIR/free_models_junior.json"; then
+            manifest_add "[files]" "$STATE_DIR/free_models_junior.json sha256:$probe_hash"
+        else
+            printf 'WARNING: %s already exists; not overwriting\n' \
                 "$STATE_DIR/free_models_junior.json" >&2
             rm -f "$PROBE_STATE"
-        else
-            mv "$PROBE_STATE" "$STATE_DIR/free_models_junior.json"
-            manifest_add "[files]" "$STATE_DIR/free_models_junior.json sha256:$(sha_of "$STATE_DIR/free_models_junior.json")"
         fi
     elif [[ $state_existed -eq 1 ]]; then
         printf 'WARNING: %s already exists; not overwriting\n' "$STATE_DIR/free_models_junior.json" >&2
