@@ -33,9 +33,10 @@ import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 DEFAULT_CATALOGUE = "~/.software-factory/free_models.json"
 DEFAULT_STATE = "~/.software-factory/free_models_junior.json"
@@ -113,7 +114,7 @@ class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 def elapsed_ms(started: float) -> int:
     """Milliseconds elapsed since a time.monotonic() reading."""
-    return int(round((time.monotonic() - started) * 1000))
+    return round((time.monotonic() - started) * 1000)
 
 
 def utc_timestamp() -> str:
@@ -503,7 +504,7 @@ def run_http_probe(request: dict[str, Any], timeout: float,
         return probe_result(None, exc.status, "unfollowed cross-host redirect")
     except urllib.error.HTTPError as exc:
         return classify_http_error(int(exc.code), elapsed_ms(started))
-    except (socket.timeout, TimeoutError):
+    except TimeoutError:
         return probe_result(None, None, "timeout")
     except urllib.error.URLError as exc:
         return probe_result(None, None, short_reason(exc.reason, secrets))
@@ -780,7 +781,7 @@ def send_request(child: subprocess.Popen[bytes], request: dict[str, Any],
             remaining = deadline - time.monotonic()
             if remaining <= 0.0:
                 return False
-            readable, writable, _ = select.select([], [fd], [], remaining)
+            _readable, writable, _ = select.select([], [fd], [], remaining)
             if not writable:
                 return False
             sent += os.write(fd, payload[sent:])
