@@ -35,6 +35,65 @@ uv run --script --env-file .env free_model_filter.py
 If `AA_API_KEY` is missing, an interactive run prompts for it. Non-interactive
 runs exit with a clear error.
 
+## Automated free-model junior pipeline
+
+`./install.sh` sets up two systemd **user** timers and keeps a state file under
+`~/.software-factory/`:
+
+- `free-models-refresh.timer` rebuilds the catalogue every 4 hours by default.
+- `free-models-probe.timer` probes each zero-priced route every 30 minutes with a
+  one-token completion and rewrites
+  `~/.software-factory/free_models_junior.json`.
+
+The refresh runs every 4 hours because the probe refuses to run against a
+catalogue older than 6 hours, so the refresh keeps two hours of head-room for
+jitter.
+
+The probe is provider-aware: OpenRouter over HTTPS with `OPENROUTER_API_KEY`,
+Kilo anonymously over HTTPS, OpenCode through its CLI (`OPENCODE_BIN`). Only
+routes verified `zero-priced` are ever probed; free-tier and mirror-listed routes
+are never touched with credentials.
+
+Availability is tri-state: `true` (reachable), `false` (confirmed dead or auth
+failure), `null` (unknown: rate-limited, timeout, or skipped). Only `true` routes
+are selectable.
+
+The skill `free-models-junior` is symlinked into `~/.agents/skills/` and appended
+as a managed block to the canonical shared AGENTS.md unless
+`--no-harness-integration` is passed.
+
+Every artifact the installer creates is recorded in
+`~/.software-factory/installed-manifest`, so `--uninstall` removes only what the
+installer created, verifying content hashes first.
+
+Credentials are read from `.env` and copied to
+`~/.software-factory/free-models.env` with mode 0600, because systemd user timers
+do not inherit an interactive shell. Rotate a key by editing `.env` and running
+`./install.sh --update`.
+
+The catalogue filter never writes into the checkout: output is staged inside
+`~/.software-factory/` and moved into place atomically, so a failed refresh keeps
+the previous catalogue.
+
+```bash
+./install.sh                      # install and bootstrap
+./install.sh --update             # re-read keys, replace owned artifacts
+./install.sh --uninstall          # remove everything the installer created
+./install.sh --dry-run            # show planned actions
+systemctl --user list-timers 'free-models-*'
+```
+
+| Path | Purpose |
+|---|---|
+| `~/.software-factory/free_models.json` | Catalogue produced by the filter |
+| `~/.software-factory/free_models_junior.json` | Probe state read by the skill |
+| `~/.software-factory/free-models.env` | Credentials for systemd (0600) |
+| `~/.software-factory/installed-manifest` | Ownership record for uninstall |
+| `~/.config/systemd/user/free-models-*` | Timers and services |
+
+Junior delegation is best for scoped tasks with explicit acceptance criteria, and
+every junior diff must be reviewed.
+
 ## Requirements
 
 - Python 3.10+
@@ -197,6 +256,8 @@ and are marked `ls` and kept out of the ranking score.
 python3 -m py_compile free_model_filter.py
 python3 free_model_filter.py --self-test
 ruff check free_model_filter.py   # if ruff is installed
+bash -n install.sh && bash -n scripts/free-models-refresh.sh  # syntax check
+python3 -m py_compile scripts/free-models-probe.py
 ```
 
 ## Security
