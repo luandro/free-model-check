@@ -188,9 +188,16 @@ PY
     fi
 
     # Publish atomically: mv each staged free_models* regular file into $STATE_DIR.
+    # A destination this installer does not own is never overwritten: a refresh
+    # must not claim a pre-existing catalogue, or uninstall would later delete it.
     for f in "$STAGE"/free_models*; do
         if [ -f "$f" ]; then
-            mv -f "$f" "$STATE_DIR/$(basename "$f")"
+            dest="$STATE_DIR/$(basename "$f")"
+            if [ -e "$dest" ] && ! grep -qF "$dest " "$MANIFEST" 2>/dev/null; then
+                echo "warning: $dest exists and is not owned; not overwriting" >&2
+                continue
+            fi
+            mv -f "$f" "$dest"
         fi
     done
 

@@ -258,8 +258,12 @@ do_uninstall() {
     # backup, an unreadable entry — means it is not ours to delete.
     local stage="$STATE_DIR/staging-bootstrap"
     if [[ -d "$stage" ]]; then
+        # Only regular files named free_models* are ours. A subdirectory (even one
+        # named free_models_backup) or an unreadable entry means the directory is
+        # not ours to delete.
         local unexpected
-        unexpected="$(find "$stage" -mindepth 1 -maxdepth 1 ! -name 'free_models*' -print 2>/dev/null)"
+        unexpected="$(find "$stage" -mindepth 1 -maxdepth 1 \
+            \( -type d -o ! -name 'free_models*' \) -print 2>/dev/null)"
         if [[ -n "$unexpected" ]]; then
             printf 'WARNING: %s has unexpected content; leaving it alone\n' "$stage" >&2
         else
@@ -457,10 +461,18 @@ if [[ -f "$MANIFEST" ]]; then
 fi
 
 # The bootstrap writes into STATE_DIR, so its destinations must be checked in
-# preflight too: a non-empty staging dir or a pre-existing catalogue that is not
-# ours has to abort before any script or unit is published.
-if [[ -d "$STATE_DIR/staging-bootstrap" && -n "$(ls -A "$STATE_DIR/staging-bootstrap" 2>/dev/null)" ]]; then
-    die "$STATE_DIR/staging-bootstrap is not empty; refusing to use it" 1
+# preflight too: a non-empty or unreadable staging dir has to abort before any
+# script or unit is published.
+if [[ -e "$STATE_DIR/staging-bootstrap" && ! -d "$STATE_DIR/staging-bootstrap" ]]; then
+    die "$STATE_DIR/staging-bootstrap exists and is not a directory" 1
+fi
+if [[ -d "$STATE_DIR/staging-bootstrap" ]]; then
+    if ! stage_entries="$(ls -A "$STATE_DIR/staging-bootstrap" 2>/dev/null)"; then
+        die "$STATE_DIR/staging-bootstrap is not readable" 1
+    fi
+    if [[ -n "$stage_entries" ]]; then
+        die "$STATE_DIR/staging-bootstrap is not empty; refusing to use it" 1
+    fi
 fi
 
 for path in "${preflight_paths[@]}"; do
@@ -626,7 +638,10 @@ if [[ $HARNESS_INTEGRATION -eq 1 ]]; then
             now_sha="$(sha_of "$tmp_now")"
             rm -f "$tmp_now"
             recorded_sha="$(sed -n 's/^block_sha256=//p' "$MANIFEST" | tail -1)"
-            if [[ -n "$recorded_sha" && "$now_sha" != "$recorded_sha" ]]; then
+            if [[ -z "$recorded_sha" ]]; then
+                # No recorded hash means we cannot prove the block is still ours.
+                printf 'WARNING: AGENTS.md block ownership is unknown; leaving it alone\n' >&2
+            elif [[ "$now_sha" != "$recorded_sha" ]]; then
                 printf 'WARNING: AGENTS.md block was edited; leaving it alone\n' >&2
             else
                 # Replace the enclosed lines, keeping the markers. The body is
@@ -735,12 +750,15 @@ if not isinstance(data.get("models"), list):
 PY
 # Publish regular files only, recording each one.
 publish_catalogue
+# The probe writes the state file directly. Claim it only when this bootstrap
+# created it, so a pre-existing state file is never adopted for deletion.
+state_existed=0
+if [[ -e "$STATE_DIR/free_models_junior.json" ]]; then state_existed=1; fi
 timeout 700 python3 "$STATE_DIR/free-models-probe.py" \
     --catalogue "$STATE_DIR/free_models.json" \
     --state "$STATE_DIR/free_models_junior.json" \
     --env-file "$STATE_DIR/free-models.env" || die "probe bootstrap failed" 1
-# The probe writes the state file directly, so record it here.
-if [[ -f "$STATE_DIR/free_models_junior.json" ]]; then
+if [[ $state_existed -eq 0 && -f "$STATE_DIR/free_models_junior.json" ]]; then
     manifest_add "[files]" "$STATE_DIR/free_models_junior.json sha256:$(sha_of "$STATE_DIR/free_models_junior.json")"
 fi
 rm -rf "$STAGE"
