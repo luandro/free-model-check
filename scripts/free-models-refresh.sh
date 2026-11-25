@@ -211,20 +211,23 @@ PY
                     continue
                 fi
             fi
-            # Hash the staged bytes, then publish. -f is needed because the
-            # destination normally exists and is ours, but the ownership and
-            # unchanged-content checks above are not enough on their own: they
-            # follow a symlink, and a swap can land between check and link.
-            # Guard both: refuse a symlinked destination, and use a symlink-safe
-            # hash so a link cannot pass as the file it points to.
+            # Publish in one atomic step. When the destination is already ours
+            # (verified above, plain file, unchanged content) a forced link
+            # replaces it; when it is absent a plain link creates it. Either way
+            # the kernel decides under the lock, so there is no check-then-write
+            # window: if the path changed, ln fails and the staged file is kept.
             staged_hash="$(sha256sum "$f" | cut -d' ' -f1)"
+            set +e
             if [ -L "$dest" ]; then
                 echo "warning: $dest is a symlink; not overwriting" >&2
                 rm -f "$f"
                 continue
             fi
-            set +e
-            ln -T -f "$f" "$dest" 2>/dev/null
+            if [ -e "$dest" ]; then
+                ln -T -f "$f" "$dest" 2>/dev/null
+            else
+                ln -T "$f" "$dest" 2>/dev/null
+            fi
             publish_rc=$?
             set -e
             if [ "$publish_rc" -ne 0 ]; then
@@ -324,7 +327,11 @@ if [ -L "$STATE_FILE" ]; then
     exit 0
 fi
 set +e
-ln -T -f "$PROBE_TMP" "$STATE_FILE" 2>/dev/null
+if [ -e "$STATE_FILE" ]; then
+    ln -T -f "$PROBE_TMP" "$STATE_FILE" 2>/dev/null
+else
+    ln -T "$PROBE_TMP" "$STATE_FILE" 2>/dev/null
+fi
 publish_rc=$?
 set -e
 if [ "$publish_rc" -ne 0 ]; then

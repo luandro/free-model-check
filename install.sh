@@ -816,16 +816,23 @@ publish_no_clobber() {
     # -T treats the destination as a plain file: without it, a symlink to a
     # directory would receive the link inside that directory and report success.
     # With replace=1 (an --update of an owned path) -f is required, because the
-    # destination normally exists; the caller has already verified ownership and
-    # that the content is unchanged. Without it, plain ln fails atomically.
-    if [ "$replace" = "1" ]; then
-        if ln -T -f "$src" "$dest" 2>/dev/null; then
+    # destination normally exists. The helper re-verifies ownership itself rather
+    # than trusting the caller: the recorded hash must match a plain file.
+    if [ "$replace" = "1" ] && [ -e "$dest" ] && [ ! -L "$dest" ]; then
+        local rec cur
+        rec="$(grep -F "$dest " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
+        cur="$(sha_of "$dest" 2>/dev/null)" || true
+        if [ -n "$rec" ] && [ "$rec" = "$cur" ]; then
+            if ln -T -f "$src" "$dest" 2>/dev/null; then
+                rm -f "$src"
+                return 0
+            fi
+        fi
+    elif [ ! -e "$dest" ] && [ ! -L "$dest" ]; then
+        if ln -T "$src" "$dest" 2>/dev/null; then
             rm -f "$src"
             return 0
         fi
-    elif ln -T "$src" "$dest" 2>/dev/null; then
-        rm -f "$src"
-        return 0
     fi
     # Distinguish "already there" from "the filesystem refused the link": the
     # caller must not treat a hard-link-capability failure as a harmless skip.
