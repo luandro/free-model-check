@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Review scripts/free-models-refresh.sh in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior against its brief at .briefs/t2-wrapper-brief.md.\n\nIt is the single entry point for the free-model catalogue: takes an exclusive flock, optionally runs free_model_filter.py into a staging dir inside $STATE_DIR, validates the JSON, atomically moves free_models* into $STATE_DIR, then runs the probe.\n\nReview for: correctness of the lock (must be exclusive and give up with 75), credential loading as data (never sourced, never printed), staging/atomic publish, exit codes matching the brief, the manifest [complete] check, quoting, and any way a failed refresh could destroy the previous catalogue.\n\nOutput BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}
