@@ -23,4 +23,5 @@ free_models*.csv
 !site/data/free_models_unbenchmarked.json
 # Local agent scratch
 .graft/
+graft/.cache/
 briefs/

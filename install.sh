@@ -235,9 +235,31 @@ do_uninstall() {
         fi
     fi
 
+    # Generated outputs are rewritten by every refresh, so their recorded hashes
+    # go stale. They are always created by this pipeline inside STATE_DIR, so
+    # remove them by name when the state dir is ours.
+    local generated
+    for generated in free_models.json free_models.csv free_models_stealthmark.json \
+                      free_models_stealthmark.csv free_models_published.json \
+                      free_models_published.csv free_models_unbenchmarked.json \
+                      free_models_unbenchmarked.csv free_models_diagnostics.json \
+                      free_models_unmatched.json free_models_junior.json; do
+        if [[ -f "$STATE_DIR/$generated" ]]; then
+            rm -f "$STATE_DIR/$generated"
+            removed_files+=("$STATE_DIR/$generated")
+        fi
+    done
+
     rm -f "$MANIFEST"
-    # The bootstrap staging dir is installer-owned scratch; remove it if present.
-    rm -rf "$STATE_DIR/staging-bootstrap"
+    # Remove the bootstrap staging dir only when it is empty or holds nothing but
+    # this installer's own catalogue files; never a recursive delete of a dir the
+    # user may have put something in.
+    if [[ -d "$STATE_DIR/staging-bootstrap" ]]; then
+        find "$STATE_DIR/staging-bootstrap" -mindepth 1 -maxdepth 1 \
+            ! -name 'free_models*' -print -quit 2>/dev/null | grep -q . \
+            && printf 'WARNING: %s has unexpected content; leaving it alone\n' "$STATE_DIR/staging-bootstrap" >&2 \
+            || rm -rf "$STATE_DIR/staging-bootstrap"
+    fi
 
     printf 'Removed units:\n'
     for u in "${removed_units[@]}"; do printf '  %s\n' "$u"; done
@@ -331,6 +353,12 @@ PROBE_EXPR="$(parse_interval "$INTERVAL_PROBE" 15 60 m probe)"
 if [[ $(id -u) -eq 0 ]]; then die "refusing to run as root"; fi
 
 if [[ $DO_UNINSTALL -eq 1 ]]; then
+    # Dry-run is checked first: a combined --uninstall --dry-run must not touch
+    # anything, and uninstall would otherwise run for real.
+    if [[ $DRY_RUN -eq 1 ]]; then
+        printf 'DRY RUN: would uninstall from %s\n' "$STATE_DIR"
+        exit 0
+    fi
     do_uninstall
     exit $?
 fi
@@ -406,13 +434,20 @@ preflight_paths=(
 
 declare -A owned=()
 if [[ -f "$MANIFEST" ]]; then
-    # [files] lines look like "<path> sha256:<hex>" or "<path> symlink:<target>".
+    # [files] rows hold absolute paths; [units] rows hold bare unit names, so
+    # each is normalised to the path preflight compares against.
     while IFS= read -r line; do
         [[ "$line" == /* ]] || continue
         path="${line%% sha256:*}"
         path="${path%% symlink:*}"
         owned["$path"]=1
     done < <(sed -n '/^\[files\]/,/^\[/p' "$MANIFEST" | sed '1d;$d')
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        unit_name="${line%% *}"
+        [[ "$unit_name" == *.service || "$unit_name" == *.timer ]] || continue
+        owned["$HOME/.config/systemd/user/$unit_name"]=1
+    done < <(sed -n '/^\[units\]/,/^\[/p' "$MANIFEST" | sed '1d;$d')
 fi
 
 for path in "${preflight_paths[@]}"; do
@@ -458,6 +493,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+Environment=STATE_DIR=$STATE_DIR
+Environment=REPO_DIR=$REPO_ROOT
 ExecStart=$STATE_DIR/free-models-refresh.sh
 WorkingDirectory=$REPO_ROOT
 EOF
@@ -485,6 +522,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+Environment=STATE_DIR=$STATE_DIR
+Environment=REPO_DIR=$REPO_ROOT
 ExecStart=$STATE_DIR/free-models-refresh.sh --skip-filter
 WorkingDirectory=$REPO_ROOT
 EOF
@@ -540,11 +579,11 @@ elif [[ -e "$SKILL_LINK" ]]; then
         done < <(sed -n '/^\[files\]/,/^\[/p' "$MANIFEST" | sed '1d;$d')
     fi
     [[ $owned_skill -eq 1 ]] || die "skill link target $SKILL_LINK exists and is not owned by manifest"
-    # If owned, leave it (update path will overwrite later)
+    # Already owned: leave it, and do not re-record it as a fresh claim.
 else
     ln -s "$SKILL_TARGET" "$SKILL_LINK"
+    manifest_add "[files]" "$SKILL_LINK symlink:$SKILL_TARGET"
 fi
-manifest_add "[files]" "$SKILL_LINK symlink:$SKILL_TARGET"
 
 # Step 9: AGENTS.md block
 if [[ $HARNESS_INTEGRATION -eq 1 ]]; then
@@ -557,20 +596,13 @@ if [[ $HARNESS_INTEGRATION -eq 1 ]]; then
     end_count=$(grep -cF "$END_MARK" "$AGENTS_MD_PATH" 2>/dev/null | head -1) || true
     begin_count="${begin_count:-0}"
     end_count="${end_count:-0}"
+    # True only when this installer created the block. A pre-existing block is
+    # left alone and never recorded, so uninstall cannot delete user content.
+    agents_block_owned=0
     if [[ $begin_count -eq 1 && $end_count -eq 1 ]]; then
-        # Check if manifest already records this path
-        manifest_has_path=0
-        if [[ -f "$MANIFEST" ]]; then
-            while IFS= read -r line; do
-                [[ "$line" == /* ]] || continue
-                path="${line%% sha256:*}"
-                path="${path%% symlink:*}"
-                [[ "$path" == "$AGENTS_MD_PATH" ]] && manifest_has_path=1
-            done < <(sed -n '/^\[files\]/,/^\[/p' "$MANIFEST" | sed '1d;$d')
-        fi
-        if [[ $manifest_has_path -eq 1 ]]; then
-            # Replace the enclosed lines only, keeping the markers. The body is
-            # byte-identical to the append path below so the recorded hash holds.
+        if grep -qxF "path=$AGENTS_MD_PATH" "$MANIFEST" 2>/dev/null; then
+            # We own it: replace the enclosed lines, keeping the markers. The body
+            # is byte-identical to the append path so the recorded hash holds.
             tmp_agents="$(mktemp "$STATE_DIR/AGENTS.md.XXXXXX")"
             awk -v begin="$BEGIN_MARK" -v end="$END_MARK" -v block="$AGENTS_BODY" '
                 $0 == begin { print; print block; skipping=1; next }
@@ -578,8 +610,9 @@ if [[ $HARNESS_INTEGRATION -eq 1 ]]; then
                 skipping    { next }
                 { print }
             ' "$AGENTS_MD_PATH" >"$tmp_agents" && mv "$tmp_agents" "$AGENTS_MD_PATH"
+            agents_block_owned=1
         else
-            printf 'WARNING: AGENTS.md has markers but not in manifest; skipping replace\n' >&2
+            printf 'WARNING: AGENTS.md already has a free-models-junior block; leaving it alone\n' >&2
         fi
     else
         # Backup before append
@@ -594,6 +627,7 @@ if [[ $HARNESS_INTEGRATION -eq 1 ]]; then
             printf '%s\n' "$AGENTS_BODY"
             printf '%s\n' "$END_MARK"
         } >>"$AGENTS_MD_PATH"
+        agents_block_owned=1
     fi
     # Record hash of enclosed text
     # Extract lines between markers to temp file
@@ -605,32 +639,61 @@ if [[ $HARNESS_INTEGRATION -eq 1 ]]; then
     ' "$AGENTS_MD_PATH" >"$tmp_block"
     block_sha="$(sha_of "$tmp_block")"
     rm -f "$tmp_block"
-    # Record path= and block_sha256= under [agents_md], replacing any previous
-    # values so a re-run does not append duplicates.
-    tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
-    {
-        cat "$MANIFEST"
-        grep -qxF '[agents_md]' "$MANIFEST" 2>/dev/null || printf '\n[agents_md]\n'
-        printf 'path=%s\n' "$AGENTS_MD_PATH"
-        printf 'block_sha256=%s\n' "$block_sha"
-    } >"$tmp_manifest"
-    # Drop earlier path=/block_sha256= lines inside the section, keeping the last.
-    awk '
-        /^path=/ { path=$0; next }
-        /^block_sha256=/ { sha=$0; next }
-        { print }
-        END {
-            if (path != "") print path
-            if (sha != "") print sha
-        }
-    ' "$tmp_manifest" >"$tmp_manifest.new" && mv "$tmp_manifest.new" "$MANIFEST"
-    rm -f "$tmp_manifest"
+    if [[ $agents_block_owned -eq 1 ]]; then
+        # Record path= and block_sha256= under [agents_md], replacing any previous
+        # values so a re-run does not append duplicates.
+        tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
+        {
+            cat "$MANIFEST"
+            grep -qxF '[agents_md]' "$MANIFEST" 2>/dev/null || printf '\n[agents_md]\n'
+            printf 'path=%s\n' "$AGENTS_MD_PATH"
+            printf 'block_sha256=%s\n' "$block_sha"
+        } >"$tmp_manifest"
+        # Drop earlier path=/block_sha256= lines inside the section, keeping the last.
+        awk '
+            /^path=/ { path=$0; next }
+            /^block_sha256=/ { sha=$0; next }
+            { print }
+            END {
+                if (path != "") print path
+                if (sha != "") print sha
+            }
+        ' "$tmp_manifest" >"$tmp_manifest.new" && mv "$tmp_manifest.new" "$MANIFEST"
+        rm -f "$tmp_manifest"
+    fi
 fi
 
 # Step 10: Bootstrap
+# The filter reads AA_API_KEY from its environment; the values parsed from .env
+# are shell variables, so they must be exported before the non-interactive run.
+export AA_API_KEY
+if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then export OPENROUTER_API_KEY; fi
+
+# Stage inside the state dir but under a name this installer owns. A pre-existing
+# staging dir is not ours to delete recursively, so refuse rather than rm -rf.
 STAGE="$STATE_DIR/staging-bootstrap"
-rm -rf "$STAGE"
+if [[ -e "$STAGE" && ! -d "$STAGE" ]]; then
+    die "$STAGE exists and is not a directory" 1
+fi
+if [[ -d "$STAGE" && -n "$(ls -A "$STAGE" 2>/dev/null)" ]]; then
+    die "$STAGE is not empty; refusing to remove it" 1
+fi
 mkdir -p "$STAGE"
+# Publish only when the destination does not already exist, so a pre-existing
+# catalogue is never overwritten and later claimed by uninstall.
+publish_catalogue() {
+    local src
+    for src in "$STAGE"/free_models*; do
+        [[ -f "$src" ]] || continue
+        local dest="$STATE_DIR/$(basename "$src")"
+        if [[ -e "$dest" ]]; then
+            printf 'WARNING: %s already exists; not overwriting\n' "$dest" >&2
+            continue
+        fi
+        mv "$src" "$dest"
+        manifest_add "[files]" "$dest sha256:$(sha_of "$dest")"
+    done
+}
 timeout 300 python3 "$REPO_ROOT/free_model_filter.py" --require-agent-ready \
     --output-prefix "$STAGE/free_models" || die "catalogue bootstrap failed" 1
 # Validate the staged catalogue before publishing anything.
@@ -648,18 +711,20 @@ if not isinstance(data.get("models"), list):
     raise SystemExit("models missing or not a list")
 PY
 # Publish regular files only, recording each one.
-for f in "$STAGE"/free_models*; do
-    if [[ -f "$f" ]]; then
-        mv "$f" "$STATE_DIR/"
-        manifest_add "[files]" "$STATE_DIR/$(basename "$f") sha256:$(sha_of "$STATE_DIR/$(basename "$f")")"
-    fi
-done
-timeout 700 python3 "$STATE_DIR/free-models-probe.py" || die "probe bootstrap failed" 1
+publish_catalogue
+timeout 700 python3 "$STATE_DIR/free-models-probe.py" \
+    --catalogue "$STATE_DIR/free_models.json" \
+    --state "$STATE_DIR/free_models_junior.json" \
+    --env-file "$STATE_DIR/free-models.env" || die "probe bootstrap failed" 1
 rm -rf "$STAGE"
 
 # Step 11: Timers
-systemctl --user daemon-reload
-systemctl --user enable --now free-models-refresh.timer free-models-probe.timer
+systemctl --user daemon-reload || printf 'WARNING: systemctl --user daemon-reload failed\n' >&2
+if ! systemctl --user enable --now free-models-refresh.timer free-models-probe.timer; then
+    # A sandbox or a host without a reachable user bus lands here. The units are
+    # written and the manifest is accurate, so this is a warning, not a failure.
+    printf 'WARNING: could not enable timers; run "systemctl --user enable --now free-models-refresh.timer free-models-probe.timer" later\n' >&2
+fi
 
 # Step 12: Complete + summary
 manifest_add "[complete]" "1"

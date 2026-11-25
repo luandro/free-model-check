@@ -26,7 +26,7 @@ refreshed automatically by systemd timers. `STATE_DIR` below defaults to `~/.sof
    - `catalogue_generated_unix` is older than 6 hours
    - `catalogue_generated_unix` is missing, non-numeric, or in the future
    - `catalogue_generation_id` is missing or not of the form `sha256:<hex>`
-   - the state's `catalogue_generation_id` differs from `sha256sum "$STATE_DIR/free_models.json"` — a new catalogue was published but the probe has not run against it yet
+   - `sha256sum "$STATE_DIR/free_models.json"` does not start with the state's `catalogue_generation_id` — a new catalogue was published but the probe has not run against it yet
 3. Choose a model: keep only models with `agent_ready: true` and a non-null `best_available_route`. Sort by `coding` descending, then `agentic` descending. Take the first whose chosen route's `last_probed` is younger than 2 hours and parseable. Everything else is stale.
 4. Build the model id: `"<provider>/<route_model>"` from `best_available_route`, e.g. `opencode/deepseek-v4.1-flash-free` or `kilo/baidu/ernie-5.5-flash-preview:free`. Do not invent ids.
 5. Delegate:

@@ -25,7 +25,19 @@
 set -euo pipefail
 
 STATE_DIR="${STATE_DIR:-$HOME/.software-factory}"
-REPO_DIR="${REPO_DIR:-/home/luandro/Dev/AI/free-model-check}"
+# REPO_DIR is set by the systemd unit (Environment=REPO_DIR=...). When the
+# wrapper is run from a checkout it can infer the repo from its own path; the
+# installed copy lives in STATE_DIR and cannot, so it needs the variable.
+REPO_DIR="${REPO_DIR:-}"
+if [[ -z "$REPO_DIR" ]]; then
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    if [[ "$(basename "$self_dir")" == "scripts" && -f "$self_dir/../free_model_filter.py" ]]; then
+        REPO_DIR="$(cd "$self_dir/.." && pwd)"
+    else
+        echo "REPO_DIR is not set; run this through systemd or export REPO_DIR" >&2
+        exit 77
+    fi
+fi
 LOCK_FILE="$STATE_DIR/refresh.lock"
 ENV_FILE="$STATE_DIR/free-models.env"
 MANIFEST="$STATE_DIR/installed-manifest"
@@ -101,8 +113,14 @@ if [ ! -f "$MANIFEST" ]; then
     echo "free-models-junior is not installed (no manifest); nothing to do" >&2
     exit 0
 fi
-# The installer marks a finished install with a [complete] section holding "1".
-if ! grep -qxF '[complete]' "$MANIFEST" || ! grep -qxE '1' "$MANIFEST"; then
+# The installer marks a finished install with a [complete] section whose only
+# line is "1". Accept nothing looser, so a malformed marker cannot pass.
+if ! awk '
+    /^\[complete\]/ { in_complete = 1; next }
+    /^\[/ { in_complete = 0 }
+    in_complete && NF { count++; value = $0 }
+    END { exit !(count == 1 && value == "1") }
+' "$MANIFEST"; then
     echo "install is partial; refusing to run" >&2
     exit 76
 fi
