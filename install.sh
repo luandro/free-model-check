@@ -247,17 +247,17 @@ do_uninstall() {
                       free_models_unmatched.json free_models_junior.json; do
         local target="$STATE_DIR/$generated"
         [[ -f "$target" ]] || continue
+        # No manifest row means we never created it: leave it alone.
         local recorded=""
         recorded="$(grep -F "$target " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')"
-        if [[ -n "$recorded" ]]; then
-            local current
-            current="$(sha256sum "$target" | cut -d' ' -f1)"
-            if [[ "$current" != "$recorded" ]]; then
-                # The content changed since we recorded it: the user replaced it.
-                printf 'WARNING: %s was modified after install; leaving it alone\n' "$target" >&2
-                skipped_files+=("$target")
-                continue
-            fi
+        [[ -n "$recorded" ]] || continue
+        local current
+        current="$(sha256sum "$target" | cut -d' ' -f1)"
+        if [[ "$current" != "$recorded" ]]; then
+            # The content changed since we recorded it: the user replaced it.
+            printf 'WARNING: %s was modified after install; leaving it alone\n' "$target" >&2
+            skipped_files+=("$target")
+            continue
         fi
         rm -f "$target"
         removed_files+=("$target")
@@ -749,7 +749,11 @@ publish_catalogue() {
         fi
         mv "$src" "$dest"
         manifest_add "[files]" "$dest sha256:$(sha_of "$dest")"
-        CATALOGUE_PUBLISHED=1
+        # Only the catalogue itself counts: publishing a sibling CSV must not
+        # make bootstrap probe a pre-existing free_models.json.
+        if [[ "$(basename "$src")" == "free_models.json" ]]; then
+            CATALOGUE_PUBLISHED=1
+        fi
     done
 }
 timeout 300 python3 "$REPO_ROOT/free_model_filter.py" --require-agent-ready \

@@ -194,10 +194,16 @@ PY
     for f in "$STAGE"/free_models*; do
         if [ -f "$f" ]; then
             dest="$STATE_DIR/$(basename "$f")"
-            if [ -e "$dest" ] && ! grep -qF "$dest " "$MANIFEST" 2>/dev/null; then
-                echo "warning: $dest exists and is not owned; not overwriting" >&2
-                rm -f "$f"
-                continue
+            if [ -e "$dest" ]; then
+                # Overwrite only a file we own AND whose content is unchanged
+                # since we recorded it. A user replacement is never clobbered.
+                recorded="$(grep -F "$dest " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')"
+                current="$(sha256sum "$dest" 2>/dev/null | cut -d' ' -f1)"
+                if [ -z "$recorded" ] || [ "$recorded" != "$current" ]; then
+                    echo "warning: $dest is not ours or was modified; not overwriting" >&2
+                    rm -f "$f"
+                    continue
+                fi
             fi
             mv -f "$f" "$dest"
             # Record or refresh ownership, so uninstall can verify the hash and a
@@ -240,9 +246,14 @@ fi
 prc=0
 # Probe to a staging path, then publish only if the state file is ours or absent.
 # A pre-existing state file is never replaced by a scheduled sweep.
-if [ -e "$STATE_FILE" ] && ! grep -qF "$STATE_FILE " "$MANIFEST" 2>/dev/null; then
-    echo "warning: $STATE_FILE exists and is not owned; not overwriting" >&2
-    exit 0
+if [ -e "$STATE_FILE" ]; then
+    # Overwrite only when the content is unchanged since we recorded it.
+    recorded="$(grep -F "$STATE_FILE " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')"
+    current="$(sha256sum "$STATE_FILE" 2>/dev/null | cut -d' ' -f1)"
+    if [ -z "$recorded" ] || [ "$recorded" != "$current" ]; then
+        echo "warning: $STATE_FILE is not ours or was modified; not overwriting" >&2
+        exit 0
+    fi
 fi
 PROBE_TMP="$STATE_FILE.tmp.$$"
 python3 "$PROBE" --catalogue "$CATALOGUE" --state "$PROBE_TMP" --env-file "$ENV_FILE" || prc=$?
