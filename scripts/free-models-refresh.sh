@@ -194,7 +194,9 @@ PY
     for f in "$STAGE"/free_models*; do
         if [ -f "$f" ]; then
             dest="$STATE_DIR/$(basename "$f")"
-            if [ -e "$dest" ]; then
+            # -L as well as -e: a dangling symlink reads as absent to -e but is
+            # still a user-owned path that must not be replaced.
+            if [ -e "$dest" ] || [ -L "$dest" ]; then
                 # Overwrite only a file we own AND whose content is unchanged
                 # since we recorded it. A user replacement is never clobbered.
                 recorded="$(grep -F "$dest " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
@@ -256,7 +258,7 @@ if [ -z "$cat_recorded" ] || [ "$cat_recorded" != "$cat_current" ]; then
 fi
 # Probe to a staging path, then publish only if the state file is ours or absent.
 # A pre-existing state file is never replaced by a scheduled sweep.
-if [ -e "$STATE_FILE" ]; then
+if [ -e "$STATE_FILE" ] || [ -L "$STATE_FILE" ]; then
     # Overwrite only when the content is unchanged since we recorded it.
     recorded="$(grep -F "$STATE_FILE " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
     current="$(sha256sum "$STATE_FILE" 2>/dev/null | cut -d' ' -f1)" || true
@@ -275,7 +277,7 @@ if [ "$prc" -ne 0 ]; then
 fi
 # Re-check ownership after the sweep: the state file may have been created or
 # edited while the probe ran, and it must not be overwritten then.
-if [ -e "$STATE_FILE" ]; then
+if [ -e "$STATE_FILE" ] || [ -L "$STATE_FILE" ]; then
     recorded_now="$(grep -F "$STATE_FILE " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
     current_now="$(sha256sum "$STATE_FILE" 2>/dev/null | cut -d' ' -f1)" || true
     if [ -z "$recorded_now" ] || [ "$recorded_now" != "$current_now" ]; then
@@ -285,6 +287,9 @@ if [ -e "$STATE_FILE" ]; then
     fi
 fi
 mv -f "$PROBE_TMP" "$STATE_FILE"
+# The file on disk now is the one we just wrote, so hash that and record it. If
+# the path was swapped between the ownership check and this rename, the hash
+# recorded here will not match at the next run and the file will be left alone.
 # Record or refresh the state file's hash so uninstall can verify it.
 state_hash="$(sha256sum "$STATE_FILE" | cut -d' ' -f1)"
 tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"

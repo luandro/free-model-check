@@ -777,7 +777,8 @@ publish_catalogue
 # The probe writes the state file directly. Claim it only when this bootstrap
 # created it, so a pre-existing state file is never adopted for deletion.
 state_existed=0
-if [[ -e "$STATE_DIR/free_models_junior.json" ]]; then state_existed=1; fi
+# -L as well as -e: a dangling symlink is still a path we must not replace.
+if [[ -e "$STATE_DIR/free_models_junior.json" || -L "$STATE_DIR/free_models_junior.json" ]]; then state_existed=1; fi
 if [[ ! -f "$STATE_DIR/free_models.json" ]]; then
     # No usable catalogue (for example every publish was skipped): leave the
     # existing state alone rather than failing the whole install.
