@@ -116,7 +116,7 @@ fi
 # The installer marks a finished install with a [complete] section whose only
 # line is "1". Accept nothing looser, so a malformed marker cannot pass.
 if ! awk '
-    /^\[complete\]/ { in_complete = 1; next }
+    /^\[complete\]$/ { in_complete = 1; next }
     /^\[/ { in_complete = 0 }
     in_complete && NF { count++; value = $0 }
     END { exit !(count == 1 && value == "1") }
@@ -212,6 +212,16 @@ if [ "$prc" -ne 0 ]; then
 fi
 
 # 7. Success.
+# The probe rewrote the state file, so refresh its recorded hash when the
+# manifest claims it; otherwise uninstall would skip a file we do own.
+if [[ -f "$STATE_FILE" ]] && grep -qF "$STATE_FILE " "$MANIFEST" 2>/dev/null; then
+    new_hash="$(sha256sum "$STATE_FILE" | cut -d' ' -f1)"
+    tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
+    awk -v old="$STATE_FILE sha256:" -v new="$STATE_FILE sha256:$new_hash" '
+        index($0, old) == 1 { print new; next }
+        { print }
+    ' "$MANIFEST" >"$tmp_manifest" && mv "$tmp_manifest" "$MANIFEST"
+fi
 cat_mtime="$(stat -c %Y "$CATALOGUE")"
 state_mtime="$(stat -c %Y "$STATE_FILE")"
 echo "refresh ok: catalogue mtime $cat_mtime state $state_mtime"

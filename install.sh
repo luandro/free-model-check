@@ -235,30 +235,36 @@ do_uninstall() {
         fi
     fi
 
-    # Generated outputs are rewritten by every refresh, so their recorded hashes
-    # go stale. They are always created by this pipeline inside STATE_DIR, so
-    # remove them by name when the state dir is ours.
+    # Generated outputs are rewritten by every refresh, so recorded hashes go
+    # stale. Remove them by name ONLY when the manifest recorded them at install
+    # time (bootstrap records every file it publishes); a catalogue that already
+    # existed and was skipped is not ours and must survive.
     local generated
     for generated in free_models.json free_models.csv free_models_stealthmark.json \
                       free_models_stealthmark.csv free_models_published.json \
                       free_models_published.csv free_models_unbenchmarked.json \
                       free_models_unbenchmarked.csv free_models_diagnostics.json \
                       free_models_unmatched.json free_models_junior.json; do
-        if [[ -f "$STATE_DIR/$generated" ]]; then
+        if [[ -f "$STATE_DIR/$generated" ]] \
+           && grep -qF "$STATE_DIR/$generated " "$MANIFEST" 2>/dev/null; then
             rm -f "$STATE_DIR/$generated"
             removed_files+=("$STATE_DIR/$generated")
         fi
     done
 
     rm -f "$MANIFEST"
-    # Remove the bootstrap staging dir only when it is empty or holds nothing but
-    # this installer's own catalogue files; never a recursive delete of a dir the
-    # user may have put something in.
-    if [[ -d "$STATE_DIR/staging-bootstrap" ]]; then
-        find "$STATE_DIR/staging-bootstrap" -mindepth 1 -maxdepth 1 \
-            ! -name 'free_models*' -print -quit 2>/dev/null | grep -q . \
-            && printf 'WARNING: %s has unexpected content; leaving it alone\n' "$STATE_DIR/staging-bootstrap" >&2 \
-            || rm -rf "$STATE_DIR/staging-bootstrap"
+    # Remove the bootstrap staging dir only when it holds nothing but this
+    # installer's own free_models* files. Anything else — a subdirectory, a
+    # backup, an unreadable entry — means it is not ours to delete.
+    local stage="$STATE_DIR/staging-bootstrap"
+    if [[ -d "$stage" ]]; then
+        local unexpected
+        unexpected="$(find "$stage" -mindepth 1 -maxdepth 1 ! -name 'free_models*' -print 2>/dev/null)"
+        if [[ -n "$unexpected" ]]; then
+            printf 'WARNING: %s has unexpected content; leaving it alone\n' "$stage" >&2
+        else
+            rm -rf "$stage"
+        fi
     fi
 
     printf 'Removed units:\n'
@@ -450,6 +456,13 @@ if [[ -f "$MANIFEST" ]]; then
     done < <(sed -n '/^\[units\]/,/^\[/p' "$MANIFEST" | sed '1d;$d')
 fi
 
+# The bootstrap writes into STATE_DIR, so its destinations must be checked in
+# preflight too: a non-empty staging dir or a pre-existing catalogue that is not
+# ours has to abort before any script or unit is published.
+if [[ -d "$STATE_DIR/staging-bootstrap" && -n "$(ls -A "$STATE_DIR/staging-bootstrap" 2>/dev/null)" ]]; then
+    die "$STATE_DIR/staging-bootstrap is not empty; refusing to use it" 1
+fi
+
 for path in "${preflight_paths[@]}"; do
     if [[ -e "$path" || -L "$path" ]]; then
         [[ -n "${owned[$path]:-}" ]] || die "refusing to overwrite $path (not owned by this installer)"
@@ -601,16 +614,32 @@ if [[ $HARNESS_INTEGRATION -eq 1 ]]; then
     agents_block_owned=0
     if [[ $begin_count -eq 1 && $end_count -eq 1 ]]; then
         if grep -qxF "path=$AGENTS_MD_PATH" "$MANIFEST" 2>/dev/null; then
-            # We own it: replace the enclosed lines, keeping the markers. The body
-            # is byte-identical to the append path so the recorded hash holds.
-            tmp_agents="$(mktemp "$STATE_DIR/AGENTS.md.XXXXXX")"
-            awk -v begin="$BEGIN_MARK" -v end="$END_MARK" -v block="$AGENTS_BODY" '
-                $0 == begin { print; print block; skipping=1; next }
-                $0 == end   { skipping=0; print; next }
-                skipping    { next }
-                { print }
-            ' "$AGENTS_MD_PATH" >"$tmp_agents" && mv "$tmp_agents" "$AGENTS_MD_PATH"
-            agents_block_owned=1
+            # We recorded this block at install time. Replace it only while the
+            # enclosed text still matches that hash; otherwise the user edited it
+            # and it is no longer ours to rewrite.
+            tmp_now="$(mktemp "$STATE_DIR/block.XXXXXX")"
+            awk -v begin="$BEGIN_MARK" -v end="$END_MARK" '
+                $0 ~ begin { inside=1; next }
+                $0 ~ end   { inside=0; next }
+                inside     { print }
+            ' "$AGENTS_MD_PATH" >"$tmp_now"
+            now_sha="$(sha_of "$tmp_now")"
+            rm -f "$tmp_now"
+            recorded_sha="$(sed -n 's/^block_sha256=//p' "$MANIFEST" | tail -1)"
+            if [[ -n "$recorded_sha" && "$now_sha" != "$recorded_sha" ]]; then
+                printf 'WARNING: AGENTS.md block was edited; leaving it alone\n' >&2
+            else
+                # Replace the enclosed lines, keeping the markers. The body is
+                # byte-identical to the append path so the recorded hash holds.
+                tmp_agents="$(mktemp "$STATE_DIR/AGENTS.md.XXXXXX")"
+                awk -v begin="$BEGIN_MARK" -v end="$END_MARK" -v block="$AGENTS_BODY" '
+                    $0 == begin { print; print block; skipping=1; next }
+                    $0 == end   { skipping=0; print; next }
+                    skipping    { next }
+                    { print }
+                ' "$AGENTS_MD_PATH" >"$tmp_agents" && mv "$tmp_agents" "$AGENTS_MD_PATH"
+                agents_block_owned=1
+            fi
         else
             printf 'WARNING: AGENTS.md already has a free-models-junior block; leaving it alone\n' >&2
         fi
@@ -669,15 +698,9 @@ fi
 export AA_API_KEY
 if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then export OPENROUTER_API_KEY; fi
 
-# Stage inside the state dir but under a name this installer owns. A pre-existing
-# staging dir is not ours to delete recursively, so refuse rather than rm -rf.
+# Stage inside the state dir under a name this installer owns. Preflight already
+# rejected a non-empty staging dir, so this is a plain mkdir.
 STAGE="$STATE_DIR/staging-bootstrap"
-if [[ -e "$STAGE" && ! -d "$STAGE" ]]; then
-    die "$STAGE exists and is not a directory" 1
-fi
-if [[ -d "$STAGE" && -n "$(ls -A "$STAGE" 2>/dev/null)" ]]; then
-    die "$STAGE is not empty; refusing to remove it" 1
-fi
 mkdir -p "$STAGE"
 # Publish only when the destination does not already exist, so a pre-existing
 # catalogue is never overwritten and later claimed by uninstall.
@@ -716,6 +739,10 @@ timeout 700 python3 "$STATE_DIR/free-models-probe.py" \
     --catalogue "$STATE_DIR/free_models.json" \
     --state "$STATE_DIR/free_models_junior.json" \
     --env-file "$STATE_DIR/free-models.env" || die "probe bootstrap failed" 1
+# The probe writes the state file directly, so record it here.
+if [[ -f "$STATE_DIR/free_models_junior.json" ]]; then
+    manifest_add "[files]" "$STATE_DIR/free_models_junior.json sha256:$(sha_of "$STATE_DIR/free_models_junior.json")"
+fi
 rm -rf "$STAGE"
 
 # Step 11: Timers
