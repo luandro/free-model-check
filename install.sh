@@ -663,9 +663,11 @@ SKILL_TARGET="$STATE_DIR/skills/free-models-junior"
 if [[ -L "$SKILL_LINK" ]]; then
     current_target="$(readlink -f "$SKILL_LINK")"
     if [[ "$current_target" != "$SKILL_TARGET" ]]; then
-        # An owned link pointing somewhere else is re-pointed rather than fatal:
-        # the installer moved the target, and --update is the documented repair.
-        if grep -qF "$SKILL_LINK " "$MANIFEST" 2>/dev/null || [[ $DO_UPDATE -eq 1 ]]; then
+        # An owned link (recorded in the manifest) pointing somewhere else is
+        # re-pointed rather than fatal: the installer moved the target, and
+        # --update is the documented repair. An unowned link is never touched,
+        # with or without --update.
+        if grep -qF "$SKILL_LINK " "$MANIFEST" 2>/dev/null; then
             ln -sfn "$SKILL_TARGET" "$SKILL_LINK"
         else
             die "skill link $SKILL_LINK exists but points to $current_target (expected $SKILL_TARGET)"
@@ -845,7 +847,9 @@ publish_catalogue() {
         # On --update an owned, unchanged destination is replaced; otherwise the
         # non-clobbering path is used so a foreign file is never touched.
         local replace=0
-        if [[ $DO_UPDATE -eq 1 && ( -e "$dest" || -L "$dest" ) ]]; then
+        if [[ $DO_UPDATE -eq 1 && -e "$dest" && ! -L "$dest" ]]; then
+            # A symlink is never replaced, and the hash is only trusted for a
+            # plain file: sha256sum would otherwise follow the link.
             local rec cur
             rec="$(grep -F "$dest " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
             cur="$(sha_of "$dest" 2>/dev/null)" || true

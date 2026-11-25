@@ -212,10 +212,17 @@ PY
                 fi
             fi
             # Hash the staged bytes, then publish. -f is needed because the
-            # destination normally exists and is ours: the ownership and
-            # unchanged-content checks above are what make replacing it safe,
-            # and ln -T -f replaces atomically rather than truncating in place.
+            # destination normally exists and is ours, but the ownership and
+            # unchanged-content checks above are not enough on their own: they
+            # follow a symlink, and a swap can land between check and link.
+            # Guard both: refuse a symlinked destination, and use a symlink-safe
+            # hash so a link cannot pass as the file it points to.
             staged_hash="$(sha256sum "$f" | cut -d' ' -f1)"
+            if [ -L "$dest" ]; then
+                echo "warning: $dest is a symlink; not overwriting" >&2
+                rm -f "$f"
+                continue
+            fi
             set +e
             ln -T -f "$f" "$dest" 2>/dev/null
             publish_rc=$?
@@ -308,8 +315,14 @@ if [ -e "$STATE_FILE" ] || [ -L "$STATE_FILE" ]; then
     fi
 fi
 state_hash="$(sha256sum "$PROBE_TMP" | cut -d' ' -f1)"
-# -f: the destination is normally our own state file, verified above. Without it
-# ln refuses and the probe output would never be published.
+# -f: the destination is normally our own state file, verified above. A symlink
+# is refused, and the hash above is taken from the staged file, so a link at the
+# destination cannot pass as the bytes we recorded.
+if [ -L "$STATE_FILE" ]; then
+    echo "warning: $STATE_FILE is a symlink; not overwriting" >&2
+    rm -f "$PROBE_TMP"
+    exit 0
+fi
 set +e
 ln -T -f "$PROBE_TMP" "$STATE_FILE" 2>/dev/null
 publish_rc=$?
@@ -344,5 +357,5 @@ mv "$tmp_manifest" "$MANIFEST"
 # 7. Success.
 cat_mtime="$(stat -c %Y "$CATALOGUE")"
 state_mtime="$(stat -c %Y "$STATE_FILE")"
-echo "refresh ok: catalogue mtime $cat_mtime state $state_mtime"
+echo "refresh ok: catalogue mtime $cat_mtime generated_unix $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["summary"]["generated_unix"])' "$CATALOGUE" 2>/dev/null || echo unknown) state mtime $state_mtime"
 exit 0

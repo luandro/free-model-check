@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Verify the fix for your NEW-1 blocker in 'git diff main' at /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior (head e22f6eb).\n\nNEW-1 was: refresh.sh used plain 'ln -T' which fails when the destination exists, so every scheduled refresh discarded its output and the catalogue froze; install.sh had the same shape on --update.\n\nClaimed fix: refresh.sh uses 'ln -T -f' for catalogue and state, guarded by ownership + unchanged-content checks above each call. install.sh's publish_no_clobber takes a replace arg, 1 only when --update verified ownership and unchanged content; first install still uses plain 'ln -T'. Bootstrap skips the filter when --update finds an owned unchanged catalogue.\n\nFocus: with -f now in use, can either script overwrite a file it does NOT own? Trace every call site and the checks that guard it. Also confirm the author's empirical result that generated_unix now advances across a wrapper run.\n\nOutput BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}
