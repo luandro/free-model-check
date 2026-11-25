@@ -249,7 +249,7 @@ do_uninstall() {
         [[ -f "$target" ]] || continue
         # No manifest row means we never created it: leave it alone.
         local recorded=""
-        recorded="$(grep -F "$target " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')"
+        recorded="$(grep -F "$target " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
         [[ -n "$recorded" ]] || continue
         local current
         current="$(sha256sum "$target" | cut -d' ' -f1)"

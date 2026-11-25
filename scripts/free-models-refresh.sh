@@ -197,8 +197,8 @@ PY
             if [ -e "$dest" ]; then
                 # Overwrite only a file we own AND whose content is unchanged
                 # since we recorded it. A user replacement is never clobbered.
-                recorded="$(grep -F "$dest " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')"
-                current="$(sha256sum "$dest" 2>/dev/null | cut -d' ' -f1)"
+                recorded="$(grep -F "$dest " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
+                current="$(sha256sum "$dest" 2>/dev/null | cut -d' ' -f1)" || true
                 if [ -z "$recorded" ] || [ "$recorded" != "$current" ]; then
                     echo "warning: $dest is not ours or was modified; not overwriting" >&2
                     rm -f "$f"
@@ -248,8 +248,8 @@ prc=0
 # A pre-existing state file is never replaced by a scheduled sweep.
 if [ -e "$STATE_FILE" ]; then
     # Overwrite only when the content is unchanged since we recorded it.
-    recorded="$(grep -F "$STATE_FILE " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')"
-    current="$(sha256sum "$STATE_FILE" 2>/dev/null | cut -d' ' -f1)"
+    recorded="$(grep -F "$STATE_FILE " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
+    current="$(sha256sum "$STATE_FILE" 2>/dev/null | cut -d' ' -f1)" || true
     if [ -z "$recorded" ] || [ "$recorded" != "$current" ]; then
         echo "warning: $STATE_FILE is not ours or was modified; not overwriting" >&2
         exit 0
