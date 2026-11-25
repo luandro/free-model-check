@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Thirteenth pass on 'git diff main' in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nYour three blockers:\n1. Bootstrap catalogue publication checked only -e: now -e OR -L.\n2. Bootstrap state publish relied on a pre-probe existence check: it now re-checks the destination after the probe and keeps anything that appeared.\n3. The wrapper hashed the destination after recording ownership: it now hashes the staged file before the rename, and the redundant second state-hash pass was removed.\n\nVerified: install -> wrapper -> update -> uninstall all exit 0 leaving only refresh.lock.\n\nReport anything still blocking. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}

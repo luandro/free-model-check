@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Tenth pass on 'git diff main' in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nYour last blocker was a TOCTOU: the wrapper hashed the catalogue, then Python re-read it. The probe now accepts --expect-sha256 and load_catalogue compares it against the exact bytes it parsed, refusing with exit 3 on mismatch. The wrapper passes the hash it verified.\n\nVerified: matching hash proceeds to the freshness gate; a wrong hash is refused; install -> wrapper -> update -> uninstall all exit 0 leaving only refresh.lock.\n\nReport anything still blocking. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}

@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Fourteenth pass on 'git diff main' in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nYour two blockers: check-then-mv was not atomic, and bootstrap hashed the destination after moving. Both catalogue and state now hash the staged bytes and publish via publish_no_clobber(), a hard link that fails atomically when the destination exists (with a guarded rename fallback). Ownership is recorded only after publication succeeds.\n\nVerified: install -> wrapper -> update -> uninstall all exit 0 leaving only refresh.lock; pre-existing free_models.json and free_models_junior.json survive install and uninstall; publish_no_clobber refuses an existing destination.\n\nReport anything still blocking. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}

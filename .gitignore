@@ -21,7 +21,3 @@ free_models*.csv
 !site/data/free_models_stealthmark.json
 !site/data/free_models_published.json
 !site/data/free_models_unbenchmarked.json
-# Local agent scratch
-.graft/
-graft/.cache/
-briefs/

@@ -35,6 +35,7 @@ refreshed automatically by systemd timers. `STATE_DIR` below defaults to `~/.sof
    ```
    - Pass the brief as ONE argument; never shell-interpolate untrusted text into the command line
    - If the CLI is missing or the model is unknown (check with `opencode models`), pick the next candidate
+   - A route proven by the HTTP probe is not proof that opencode can reach that provider: `available: true` means the provider answered, not that a local provider is configured. If opencode has no provider for `best_available_route.provider`, skip the model
 6. Review: read the diff yourself and check it against the stated acceptance criteria. A free-model junior is unproven — never merge unreviewed output.
 
 ## State file fields
@@ -56,7 +57,10 @@ refreshed automatically by systemd timers. `STATE_DIR` below defaults to `~/.sof
 ## Notes
 
 - `null` availability means unprobed or transient — not dead. Only `available: true` is selectable.
-- If nothing is available, run `~/.software-factory/free-models-refresh.sh` manually or wait for the next 30-minute probe.
+- If nothing is available, start a refresh with
+  `systemctl --user start free-models-refresh.service`, or wait for the next
+  30-minute probe. Do not run `~/.software-factory/free-models-refresh.sh`
+  directly: the installed copy needs `REPO_DIR` from its systemd unit.
 - Do not edit the state file.
 - A one-token probe proves reachability, not coding quality.
 - Paths: state `STATE_DIR/free_models_junior.json`, catalogue `STATE_DIR/free_models.json`, lock `STATE_DIR/refresh.lock`, wrapper `STATE_DIR/free-models-refresh.sh` (STATE_DIR defaults to `~/.software-factory`).

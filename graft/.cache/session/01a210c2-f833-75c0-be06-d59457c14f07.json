@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Fourth pass on 'git diff main' in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nSince your last review:\n1. The staging check requires regular files: a subdirectory named free_models_backup is no longer deleted, and an unreadable staging dir aborts in preflight before scripts/units are written.\n2. Scheduled refresh will not overwrite a destination the manifest does not claim.\n3. Bootstrap records free_models_junior.json only when it created it (state_existed flag).\n4. A missing/empty block_sha256 no longer authorises replacing the AGENTS.md block.\n\nVerified locally: a pre-existing free_models.json and free_models_junior.json both survive install and uninstall unchanged.\n\nReport anything still blocking. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}

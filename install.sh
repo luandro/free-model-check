@@ -62,8 +62,6 @@ do_uninstall() {
     local -a file_types=()
     local agents_md_path=""
     local agents_md_block_sha=""
-    local agents_md_begin=""
-    local agents_md_end=""
     local in_section=""
 
     while IFS= read -r line; do
@@ -170,6 +168,11 @@ do_uninstall() {
                     current_hash="$(sha_of "$path")"
                     [[ "$current_hash" == "$expected" ]] && match=1
                 fi
+            elif [[ "$type" == "symlink" && "$expected" == "dir" ]]; then
+                # An owned directory: remove it only when empty.
+                if [[ -d "$path" && -z "$(ls -A "$path" 2>/dev/null)" ]]; then
+                    rmdir "$path" && match=1
+                fi
             elif [[ "$type" == "symlink" ]]; then
                 if [[ -L "$path" ]]; then
                     local target
@@ -204,8 +207,8 @@ do_uninstall() {
                 local tmp_block
                 tmp_block="$(mktemp "$STATE_DIR/block.XXXXXX")"
                 awk -v begin="$begin_mark" -v end="$end_mark" '
-                    $0 ~ begin { in_block=1; next }
-                    $0 ~ end   { in_block=0; next }
+                    $0 == begin { in_block=1; next }
+                    $0 == end   { in_block=0; next }
                     in_block   { print }
                 ' "$agents_md_path" >"$tmp_block"
                 local block_hash
@@ -263,7 +266,25 @@ do_uninstall() {
         removed_files+=("$target")
     done
 
-    rm -f "$MANIFEST"
+    # Keep the manifest when anything was skipped: deleting it would leave the
+    # surviving files unowned, so a re-run could not adopt or remove them.
+    if [[ ${#skipped_files[@]} -eq 0 && ${#skipped_units[@]} -eq 0 ]]; then
+        rm -f "$MANIFEST"
+    else
+        printf 'Manifest kept because some artifacts were left in place\n' >&2
+    fi
+    # Remove the installer-owned scratch trees, but only when empty: a stray
+    # file means the user put something there.
+    local scratch
+    for scratch in "$STATE_DIR/backups" "$STATE_DIR/skills"; do
+        if [[ -d "$scratch" ]]; then
+            if [[ -z "$(ls -A "$scratch" 2>/dev/null)" ]]; then
+                rmdir "$scratch"
+            else
+                printf 'WARNING: %s is not empty; leaving it alone\n' "$scratch" >&2
+            fi
+        fi
+    done
     # Remove the bootstrap staging dir only when it holds nothing but this
     # installer's own free_models* files. Anything else — a subdirectory, a
     # backup, an unreadable entry — means it is not ours to delete.
@@ -310,6 +331,11 @@ manifest_add() {
     else
         cat "$MANIFEST" >"$tmp"
     fi
+    # Drop an existing row for the same path first, so --update replaces rather
+    # than duplicates and uninstall cannot report one path twice.
+    local key="${line%% *}"
+    grep -vF "$key " "$tmp" >"$tmp.dedup" 2>/dev/null || true
+    mv "$tmp.dedup" "$tmp"
     if grep -qxF "[$section]" "$tmp" 2>/dev/null; then
         # Insert the row at the end of its own section: after the header until
         # the next header (or EOF).
@@ -329,17 +355,10 @@ manifest_add() {
     mv "$tmp" "$MANIFEST"
 }
 
-manifest_rewrite() {
-    local tmp
-    tmp="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
-    printf '%s' "$1" >"$tmp"
-    mv "$tmp" "$MANIFEST"
-}
-
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --interval-refresh) INTERVAL_REFRESH="${2:-}"; shift 2 ;;
-        --interval-probe) INTERVAL_PROBE="${2:-}"; shift 2 ;;
+        --interval-refresh) [[ $# -ge 2 ]] || die "--interval-refresh needs a value"; INTERVAL_REFRESH="$2"; shift 2 ;;
+        --interval-probe) [[ $# -ge 2 ]] || die "--interval-probe needs a value"; INTERVAL_PROBE="$2"; shift 2 ;;
         --no-harness-integration) HARNESS_INTEGRATION=0; shift ;;
         --update) DO_UPDATE=1; shift ;;
         --uninstall) DO_UNINSTALL=1; shift ;;
@@ -351,13 +370,18 @@ done
 
 parse_interval() {
     local interval="$1" min="$2" max="$3" unit="$4" name="$5" value expr
+    # The bounds are expressed in the unit the flag uses: minutes for the probe
+    # (15..60) and hours for the refresh (1..4). Comparing across units would
+    # accept "1m" as a refresh interval and reject a valid "1h" probe.
     if [[ "$interval" =~ ^([0-9]+)m$ ]]; then
         value="${BASH_REMATCH[1]}"
+        [[ "$unit" == "m" ]] || die "$name interval must be in hours, got: $interval"
         (( value >= min && value <= max )) || die "$name interval ${value}m outside range ${min}m..${max}m"
         (( 60 % value == 0 )) || die "$name interval ${value}m must divide 60"
         expr="*:0/${value}"
     elif [[ "$interval" =~ ^([0-9]+)h$ ]]; then
         value="${BASH_REMATCH[1]}"
+        [[ "$unit" == "h" ]] || die "$name interval must be in minutes, got: $interval"
         (( value >= min && value <= max )) || die "$name interval ${value}h outside range ${min}h..${max}h"
         (( 24 % value == 0 )) || die "$name interval ${value}h must divide 24"
         expr="*-*-* 00/${value}:00:00"
@@ -387,6 +411,13 @@ if [[ $DO_UNINSTALL -eq 1 ]]; then
 fi
 
 if [[ $DRY_RUN -eq 1 ]]; then
+    # Resolve the same canonical path the real run would, so dry-run does not
+    # name a different file than the one that gets the managed block.
+    dry_agents="$HOME/Dev/agent-harnesses/instructions/AGENTS.md"
+    if [[ -L "$HOME/.claude/CLAUDE.md" ]]; then
+        dry_resolved="$(readlink -f "$HOME/.claude/CLAUDE.md" || true)"
+        [[ -n "$dry_resolved" ]] && dry_agents="$dry_resolved"
+    fi
     cat <<EOF
 DRY RUN — no changes will be made
   state dir:      $STATE_DIR
@@ -394,7 +425,7 @@ DRY RUN — no changes will be made
   refresh:        $INTERVAL_REFRESH ($REFRESH_EXPR)
   probe:          $INTERVAL_PROBE ($PROBE_EXPR)
   opencode bin:   $(command -v opencode 2>/dev/null || echo '<not found>')
-  harness AGENTS: $HOME/Dev/agent-harnesses/instructions/AGENTS.md
+  harness AGENTS: $dry_agents
   harness integration: $([[ $HARNESS_INTEGRATION -eq 1 ]] && echo yes || echo no)
 EOF
     exit 0
@@ -408,19 +439,29 @@ command -v systemctl >/dev/null || die "systemctl not found"
 command -v systemd-analyze >/dev/null || die "systemd-analyze not found"
 [[ -f "$REPO_ROOT/.env" ]] || die "$REPO_ROOT/.env not found"
 
+# Extract credentials: parse "$REPO_ROOT/.env" as data (never sourced).
+# The grammar matches the probe's reader: optional "export ", KEY=VALUE, and one
+# pair of surrounding quotes stripped. Three parsers with three grammars meant a
+# valid .env line could be rejected by one and accepted by another.
 AA_API_KEY=""
 OPENROUTER_API_KEY=""
 while IFS='=' read -r key value; do
     [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
-    # Strip surrounding quotes and whitespace: the value is data, never sourced.
+    key="${key#export }"
     key="${key//[[:space:]]/}"
     value="${value%$'\r'}"
     value="${value#"${value%%[![:space:]]*}"}"
     value="${value%"${value##*[![:space:]]}"}"
-    case "$value" in
-        \'*\') value="${value#\'}"; value="${value%\'}" ;;
-        \"*\') value="${value#\"}"; value="${value%\"}" ;;
-    esac
+    # Strip one matching pair of surrounding quotes. A case pattern cannot be
+    # used here: quoting a double quote inside a case pattern is parsed
+    # inconsistently, which left "value" wrapped in its quotes.
+    if [[ ${#value} -ge 2 ]]; then
+        first="${value:0:1}"
+        last="${value: -1}"
+        if [[ "$first" == "$last" && ( "$first" == '"' || "$first" == "'" ) ]]; then
+            value="${value:1:${#value}-2}"
+        fi
+    fi
     case "$key" in
         AA_API_KEY) AA_API_KEY="$value" ;;
         OPENROUTER_API_KEY) OPENROUTER_API_KEY="$value" ;;
@@ -455,6 +496,17 @@ preflight_paths=(
     "$HOME/.config/systemd/user/free-models-probe.timer"
 )
 
+manifest_rows() {
+    # Print the rows of one section. sed's range form runs to EOF when the
+    # section is last, so '1d;$d' would delete its final data row; awk tracks
+    # the section explicitly instead.
+    local want="$1"
+    awk -v want="[$want]" '
+        /^\[/ { inside = ($0 == want); next }
+        inside && NF { print }
+    ' "$MANIFEST" 2>/dev/null
+}
+
 declare -A owned=()
 if [[ -f "$MANIFEST" ]]; then
     # [files] rows hold absolute paths; [units] rows hold bare unit names, so
@@ -464,13 +516,13 @@ if [[ -f "$MANIFEST" ]]; then
         path="${line%% sha256:*}"
         path="${path%% symlink:*}"
         owned["$path"]=1
-    done < <(sed -n '/^\[files\]/,/^\[/p' "$MANIFEST" | sed '1d;$d')
+    done < <(manifest_rows files)
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
         unit_name="${line%% *}"
         [[ "$unit_name" == *.service || "$unit_name" == *.timer ]] || continue
         owned["$HOME/.config/systemd/user/$unit_name"]=1
-    done < <(sed -n '/^\[units\]/,/^\[/p' "$MANIFEST" | sed '1d;$d')
+    done < <(manifest_rows units)
 fi
 
 # The bootstrap writes into STATE_DIR, so its destinations must be checked in
@@ -503,21 +555,38 @@ fi
 [[ -e "$AGENTS_MD_PATH" ]] || die "AGENTS.md not found at $AGENTS_MD_PATH"
 
 # Step 5: Credentials
-umask 077
 CRED_FILE="$STATE_DIR/free-models.env"
-{
-    printf 'AA_API_KEY=%s\n' "$AA_API_KEY"
-    if [[ -n "$OPENROUTER_API_KEY" ]]; then printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY"; else
-        printf 'WARNING: OPENROUTER_API_KEY absent from .env\n' >&2; fi
-    printf 'OPENCODE_BIN=%s\n' "$OPENCODE_BIN"
-} >"$CRED_FILE"
+( umask 077; : >"$CRED_FILE" )   # create 0600 from the first write
+cat >"$CRED_FILE" <<EOF
+AA_API_KEY=$AA_API_KEY
+EOF
+if [[ -n "$OPENROUTER_API_KEY" ]]; then
+    printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >>"$CRED_FILE"
+else
+    printf 'WARNING: OPENROUTER_API_KEY absent from .env\n' >&2
+fi
+printf 'OPENCODE_BIN=%s\n' "$OPENCODE_BIN" >>"$CRED_FILE"
+chmod 600 "$CRED_FILE" 2>/dev/null || true
 manifest_add "[files]" "$CRED_FILE sha256:$(sha_of "$CRED_FILE")"
 
 # Step 6: Install scripts
+# Install scripts: the filter is copied as well, so the timers do not depend on
+# the checkout surviving. Installing from a git worktree would otherwise leave
+# both timers and the skill pointing at a path that disappears when it is pruned.
 install -m 0755 "$REPO_ROOT/scripts/free-models-probe.py" "$STATE_DIR/free-models-probe.py"
 manifest_add "[files]" "$STATE_DIR/free-models-probe.py sha256:$(sha_of "$STATE_DIR/free-models-probe.py")"
 install -m 0755 "$REPO_ROOT/scripts/free-models-refresh.sh" "$STATE_DIR/free-models-refresh.sh"
 manifest_add "[files]" "$STATE_DIR/free-models-refresh.sh sha256:$(sha_of "$STATE_DIR/free-models-refresh.sh")"
+install -m 0644 "$REPO_ROOT/free_model_filter.py" "$STATE_DIR/free_model_filter.py"
+manifest_add "[files]" "$STATE_DIR/free_model_filter.py sha256:$(sha_of "$STATE_DIR/free_model_filter.py")"
+# The skill is read through the symlink, so it must not live only in the repo.
+install -d "$STATE_DIR/skills/free-models-junior"
+install -m 0644 "$REPO_ROOT/scripts/skills/free-models-junior/SKILL.md" \
+    "$STATE_DIR/skills/free-models-junior/SKILL.md"
+manifest_add "[files]" "$STATE_DIR/skills/free-models-junior/SKILL.md sha256:$(sha_of "$STATE_DIR/skills/free-models-junior/SKILL.md")"
+# The directories are ours too, so an empty leftover tree is removed on uninstall.
+manifest_add "[files]" "$STATE_DIR/skills/free-models-junior symlink:dir"
+manifest_add "[files]" "$STATE_DIR/skills symlink:dir"
 
 # Step 7: Write four units
 UNIT_DIR="$HOME/.config/systemd/user"
@@ -535,6 +604,8 @@ Environment=STATE_DIR=$STATE_DIR
 Environment=REPO_DIR=$REPO_ROOT
 ExecStart=$STATE_DIR/free-models-refresh.sh
 WorkingDirectory=$REPO_ROOT
+# Exit 75 means another run held the lock: routine, not a failure.
+SuccessExitStatus=75
 EOF
 manifest_add "[units]" "free-models-refresh.service sha256:$(sha_of "$UNIT_DIR/free-models-refresh.service")"
 
@@ -564,6 +635,7 @@ Environment=STATE_DIR=$STATE_DIR
 Environment=REPO_DIR=$REPO_ROOT
 ExecStart=$STATE_DIR/free-models-refresh.sh --skip-filter
 WorkingDirectory=$REPO_ROOT
+SuccessExitStatus=75
 EOF
 manifest_add "[units]" "free-models-probe.service sha256:$(sha_of "$UNIT_DIR/free-models-probe.service")"
 
@@ -581,7 +653,7 @@ WantedBy=timers.target
 EOF
 manifest_add "[units]" "free-models-probe.timer sha256:$(sha_of "$UNIT_DIR/free-models-probe.timer")"
 
-if [[ $DRY_RUN -eq 1 ]]; then printf 'DRY RUN: steps 8-12 would run\n'; exit 0; fi
+if [[ $DRY_RUN -eq 1 ]]; then printf 'DRY RUN: no changes made\n'; exit 0; fi
 # --update: clear [complete] before step 8 if the manifest exists and has it
 if [[ $DO_UPDATE -eq 1 ]]; then
     if [[ -f "$MANIFEST" ]] && grep -qxF '[complete]' "$MANIFEST"; then
@@ -599,11 +671,19 @@ fi
 # Step 8: Skill symlink
 mkdir -p "$HOME/.agents/skills"
 SKILL_LINK="$HOME/.agents/skills/free-models-junior"
-SKILL_TARGET="$REPO_ROOT/scripts/skills/free-models-junior"
+# Point at the installed copy: a symlink into the repo would dangle if the
+# checkout is a worktree that later gets pruned.
+SKILL_TARGET="$STATE_DIR/skills/free-models-junior"
 if [[ -L "$SKILL_LINK" ]]; then
     current_target="$(readlink -f "$SKILL_LINK")"
     if [[ "$current_target" != "$SKILL_TARGET" ]]; then
-        die "skill link $SKILL_LINK exists but points to $current_target (expected $SKILL_TARGET)"
+        # An owned link pointing somewhere else is re-pointed rather than fatal:
+        # the installer moved the target, and --update is the documented repair.
+        if grep -qF "$SKILL_LINK " "$MANIFEST" 2>/dev/null || [[ $DO_UPDATE -eq 1 ]]; then
+            ln -sfn "$SKILL_TARGET" "$SKILL_LINK"
+        else
+            die "skill link $SKILL_LINK exists but points to $current_target (expected $SKILL_TARGET)"
+        fi
     fi
 elif [[ -e "$SKILL_LINK" ]]; then
     # Check if owned in manifest
@@ -614,7 +694,7 @@ elif [[ -e "$SKILL_LINK" ]]; then
             path="${line%% sha256:*}"
             path="${path%% symlink:*}"
             [[ "$path" == "$SKILL_LINK" ]] && owned_skill=1
-        done < <(sed -n '/^\[files\]/,/^\[/p' "$MANIFEST" | sed '1d;$d')
+        done < <(manifest_rows files)
     fi
     [[ $owned_skill -eq 1 ]] || die "skill link target $SKILL_LINK exists and is not owned by manifest"
     # Already owned: leave it, and do not re-record it as a fresh claim.
@@ -644,8 +724,8 @@ if [[ $HARNESS_INTEGRATION -eq 1 ]]; then
             # and it is no longer ours to rewrite.
             tmp_now="$(mktemp "$STATE_DIR/block.XXXXXX")"
             awk -v begin="$BEGIN_MARK" -v end="$END_MARK" '
-                $0 ~ begin { inside=1; next }
-                $0 ~ end   { inside=0; next }
+                $0 == begin { inside=1; next }
+                $0 == end   { inside=0; next }
                 inside     { print }
             ' "$AGENTS_MD_PATH" >"$tmp_now"
             now_sha="$(sha_of "$tmp_now")"
@@ -672,11 +752,15 @@ if [[ $HARNESS_INTEGRATION -eq 1 ]]; then
             printf 'WARNING: AGENTS.md already has a free-models-junior block; leaving it alone\n' >&2
         fi
     else
-        # Backup before append
-        backup_dir="$(dirname "$AGENTS_MD_PATH")/backups"
+        # Backup before append, inside the state dir so it is recorded and
+        # removed by --uninstall rather than left in the user's tracked repo.
+        backup_dir="$STATE_DIR/backups"
         mkdir -p "$backup_dir" || printf 'WARNING: could not create backup dir\n' >&2
         backup_file="$backup_dir/AGENTS.md.$(date +%Y%m%dT%H%M%S).bak"
         cp "$AGENTS_MD_PATH" "$backup_file" 2>/dev/null || printf 'WARNING: backup failed\n' >&2
+        if [[ -f "$backup_file" ]]; then
+            manifest_add "[files]" "$backup_file sha256:$(sha_of "$backup_file")"
+        fi
         # Append block
         {
             printf '\n'
@@ -690,8 +774,8 @@ if [[ $HARNESS_INTEGRATION -eq 1 ]]; then
     # Extract lines between markers to temp file
     tmp_block="$(mktemp "$STATE_DIR/block.XXXXXX")"
     awk -v begin="$BEGIN_MARK" -v end="$END_MARK" '
-        $0 ~ begin { in_block=1; next }
-        $0 ~ end { in_block=0; next }
+        $0 == begin { in_block=1; next }
+        $0 == end { in_block=0; next }
         in_block { print }
     ' "$AGENTS_MD_PATH" >"$tmp_block"
     block_sha="$(sha_of "$tmp_block")"
@@ -788,7 +872,7 @@ publish_catalogue() {
         fi
     done
 }
-timeout 300 python3 "$REPO_ROOT/free_model_filter.py" --require-agent-ready \
+timeout 300 python3 "$STATE_DIR/free_model_filter.py" --require-agent-ready \
     --output-prefix "$STAGE/free_models" || die "catalogue bootstrap failed" 1
 # Validate the staged catalogue before publishing anything.
 python3 - "$STAGE/free_models.json" <<'PY' || die "bootstrap JSON validation failed" 1
@@ -824,9 +908,17 @@ if [[ $stage_ready -eq 1 ]]; then
     # Probe only against a catalogue this run published; a pre-existing one may
     # be stale or foreign, and probing it could fail or cost a request.
     if [[ $CATALOGUE_PUBLISHED -eq 0 ]]; then
-        printf 'WARNING: catalogue was not published by this run; skipping the bootstrap probe\n' >&2
-        rm -rf "$STAGE"
-        stage_ready=0
+        # On --update the catalogue is already owned and was refreshed by the
+        # timer, so re-probe it instead of discarding a build we just paid for.
+        cat_recorded="$(grep -F "$STATE_DIR/free_models.json " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
+        cat_current="$(sha256sum "$STATE_DIR/free_models.json" 2>/dev/null | cut -d' ' -f1)" || true
+        if [[ $DO_UPDATE -eq 1 && -n "$cat_recorded" && "$cat_recorded" == "$cat_current" ]]; then
+            printf 'NOTE: catalogue already owned and unchanged; probing it in place\n' >&2
+        else
+            printf 'WARNING: catalogue was not published by this run; skipping the bootstrap probe\n' >&2
+            rm -rf "$STAGE"
+            stage_ready=0
+        fi
     fi
 fi
 if [[ $stage_ready -eq 1 ]]; then

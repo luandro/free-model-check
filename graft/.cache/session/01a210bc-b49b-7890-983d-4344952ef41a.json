@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Third pass on 'git diff main' in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nSince your last review:\n1. Uninstall removes generated outputs by name only when the manifest claims that exact path; a pre-existing catalogue bootstrap skipped is no longer deleted.\n2. The staging dir is checked in preflight (before scripts/units are written) and is only removed when it contains nothing but free_models* files; a subdirectory or unreadable entry aborts deletion.\n3. --update replaces the AGENTS.md block only when the enclosed text still matches the recorded block_sha256; user edits are preserved with a warning.\n4. free_models_junior.json is recorded at bootstrap and its hash refreshed by the wrapper after each probe.\n5. The wrapper's [complete] regex is anchored (/^\\[complete\\]$/).\n6. The stray graft/.cache session files are untracked again.\n\nVerify and report anything still blocking. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}

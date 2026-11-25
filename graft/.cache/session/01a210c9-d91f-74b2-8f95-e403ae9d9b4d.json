@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Fifth pass on 'git diff main' in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nSince your last review:\n1. Bootstrap and scheduled probes write the state to a staging path and publish only when the destination is absent or already owned; a pre-existing free_models_junior.json is never overwritten. Bootstrap skips the probe when the catalogue was not published by this run.\n2. Uninstall deletes a generated file only when it still parses as JSON, so a user replacement at an owned path survives.\n3. The staging check requires plain regular files: a symlink or a free_models_backup file is left alone.\n4. Skipped catalogue files are removed from staging so --update does not see a non-empty staging dir.\n\nVerified locally: pre-existing free_models.json and free_models_junior.json survive install, --update and --uninstall unchanged.\n\nReport anything still blocking. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}

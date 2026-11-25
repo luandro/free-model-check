@@ -45,6 +45,10 @@ DEFAULT_SWEEP_BUDGET = 600.0
 DEFAULT_REQUEST_TIMEOUT = 30.0
 MAX_CATALOGUE_AGE_SECONDS = 6 * 3600
 CLOCK_SKEW_SECONDS = 300
+# Minimum coding or agentic score a model needs before it is probed. Only models
+# clearing this floor (and agent-ready) are worth a request, so the sweep stays
+# inside its budget. Deliberately not a CLI flag: the floor is what makes the
+# shortlist short, and the skill's consumers rely on it.
 QUALITY_FLOOR = 25.0
 PROBE_PROMPT = "Say ok"
 PROBE_MAX_TOKENS = 1
@@ -412,9 +416,9 @@ def plan_probe(
             return None, probe_result(None, None, "opencode binary is not an absolute path")
         command = [binary, "run", "--model", f"opencode/{route_model}", PROBE_PROMPT]
         request = {"mode": "cli", "command": command, "timeout": timeout}
-        # The CLI's stderr is captured into state, so it must be redacted too.
-        token = credentials.get("OPENROUTER_API_KEY", "").strip()
-        request["secrets"] = [token] if token else []
+        # The CLI's stderr is captured into state, so every credential in the
+        # environment must be redactable, not just the OpenRouter token.
+        request["secrets"] = [value for value in credentials.values() if value]
         return request, None
     return None, probe_result(None, None, f"unsupported provider: {provider or 'unknown'}")
 
@@ -552,8 +556,9 @@ def run_cli_probe(request: dict[str, Any], timeout: float,
     if argv is None:
         return probe_result(None, None, "no pid namespace available (bwrap missing)")
     # bwrap registers its parent-death signal during startup, so a deadline that
-    # lands before that registration cannot be caught by --die-with-parent. The
-    # parent's kill_live_children pass is the backstop for that window.
+    # lands before that registration cannot be caught by --die-with-parent. That
+    # window is covered by the caller's process-group kill of this worker, not by
+    # kill_live_children: this set only holds probe-worker pids.
     started = time.monotonic()
     try:
         process = subprocess.Popen(
@@ -1081,6 +1086,10 @@ def best_route(routes: list[dict[str, Any]]) -> dict[str, str] | None:
     return {
         "provider": str(chosen.get("provider") or ""),
         "route_model": str(chosen.get("route_model") or ""),
+        # Carry the freshness the skill filters on, so it does not have to join
+        # back into routes[] to find it.
+        "last_probed": chosen.get("last_probed"),
+        "latency_ms": chosen.get("latency_ms"),
     }
 
 
@@ -1185,7 +1194,6 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="per-request timeout, in seconds",
     )
     parser.add_argument("--verbose", action="store_true", help="print one line per route")
-    parser.add_argument("--probe-one", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if not math.isfinite(args.sweep_budget) or args.sweep_budget <= 0:
         parser.error("--sweep-budget must be a positive number of seconds")

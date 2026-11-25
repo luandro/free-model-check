@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Ninth pass on 'git diff main' in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nYour last blocker: refresh preserved a pre-existing free_models.json with no manifest row and then probed it. The wrapper now requires a manifest row whose sha256 still matches the file on disk before probing; otherwise it warns and exits 0.\n\nVerified locally: (a) a malformed unowned free_models.json makes the wrapper warn and skip, not fail; (b) install -> wrapper -> update -> uninstall still exits 0 everywhere and leaves only refresh.lock.\n\nReport anything still blocking. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}

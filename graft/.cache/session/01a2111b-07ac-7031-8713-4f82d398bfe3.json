@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Fifteenth pass on 'git diff main' in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nYour two blockers: the mv fallback still had a check-then-rename window and returned success when mv failed; and plain ln could link inside a symlinked directory. publish_no_clobber now uses only 'ln -T', which is atomic, treats the destination as a plain file, and fails when it exists. The fallback is removed.\n\nVerified: existing file -> rc=1 and unchanged; fresh path -> rc=0; symlink-to-directory -> rc=1 with the link untouched and the real dir still empty. install -> wrapper -> update -> uninstall all exit 0 leaving only refresh.lock.\n\nReport anything still blocking. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}

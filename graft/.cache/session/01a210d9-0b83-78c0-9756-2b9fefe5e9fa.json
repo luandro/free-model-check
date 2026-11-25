@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Sixth pass on 'git diff main' in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nSince your last review:\n1. Uninstall compares each generated file to its recorded sha256 and skips (with a warning) anything modified after install. Verified: a user-replaced free_models.json survives uninstall.\n2. The wrapper records/refreshes the hash of every file it publishes, inserting rows into [files] via awk (not appending at EOF).\n3. The staging check accepts only plain files matching free_models.json|.csv or free_models_<lane>.json|.csv; free_models_backup, directories and symlinks are left alone.\n4. Bootstrap sets CATALOGUE_PUBLISHED only when this run published the catalogue, replacing the earlier manifest-membership check.\n\nVerified locally: install -> wrapper run -> uninstall leaves only refresh.lock.\n\nReport anything still blocking. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}

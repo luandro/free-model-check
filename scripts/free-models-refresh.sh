@@ -25,19 +25,11 @@
 set -euo pipefail
 
 STATE_DIR="${STATE_DIR:-$HOME/.software-factory}"
-# REPO_DIR is set by the systemd unit (Environment=REPO_DIR=...). When the
-# wrapper is run from a checkout it can infer the repo from its own path; the
-# installed copy lives in STATE_DIR and cannot, so it needs the variable.
-REPO_DIR="${REPO_DIR:-}"
-if [[ -z "$REPO_DIR" ]]; then
-    self_dir="$(cd "$(dirname "$0")" && pwd)"
-    if [[ "$(basename "$self_dir")" == "scripts" && -f "$self_dir/../free_model_filter.py" ]]; then
-        REPO_DIR="$(cd "$self_dir/.." && pwd)"
-    else
-        echo "REPO_DIR is not set; run this through systemd or export REPO_DIR" >&2
-        exit 77
-    fi
-fi
+# REPO_DIR is only the units' WorkingDirectory. The filter and probe are
+# installed into STATE_DIR, so nothing here depends on the checkout surviving:
+# installing from a git worktree must not leave the timers pointing at a path
+# that disappears when the worktree is pruned.
+REPO_DIR="${REPO_DIR:-$STATE_DIR}"
 LOCK_FILE="$STATE_DIR/refresh.lock"
 ENV_FILE="$STATE_DIR/free-models.env"
 MANIFEST="$STATE_DIR/installed-manifest"
@@ -75,7 +67,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "mkdir -p \"$STATE_DIR\""
     echo "exec 9>\"$LOCK_FILE\"; flock -w 5 9"
     if [ "$SKIP_FILTER" -eq 0 ]; then
-        echo "timeout 300 python3 \"$REPO_DIR/free_model_filter.py\" --require-agent-ready --output-prefix \"$STATE_DIR/staging-\$\$/free_models\""
+        echo "timeout 300 python3 \"$STATE_DIR/free_model_filter.py\" --require-agent-ready --output-prefix \"$STATE_DIR/staging-\$\$/free_models\""
         echo "# validate staged catalogue, then mv -f each free_models* into \"$STATE_DIR\""
     fi
     echo "python3 \"$PROBE\" --catalogue \"$CATALOGUE\" --state \"$STATE_FILE\" --env-file \"$ENV_FILE\""
@@ -103,7 +95,10 @@ if [ -z "$FLOCK_BIN" ]; then
 fi
 
 exec 9>"$LOCK_FILE"
-if ! "$FLOCK_BIN" -w 5 9; then
+# The wait must comfortably exceed a probe sweep (up to 600 s). Both timers can
+# fire on the same minute, and the refresh is the one that must not be starved:
+# skipping it lets the catalogue age past the probe's 6-hour gate.
+if ! "$FLOCK_BIN" -w 900 9; then
     echo "another refresh is running; giving up" >&2
     exit 75
 fi
@@ -133,16 +128,24 @@ fi
 
 # 4. Load credentials from $ENV_FILE as data (never printed).
 if [ -f "$ENV_FILE" ]; then
+    # Grammar matches install.sh and the probe: optional "export ", KEY=VALUE,
+    # one pair of surrounding quotes stripped. A line whose key is not a valid
+    # shell identifier is ignored rather than exported.
     while IFS='=' read -r key value; do
         case "$key" in
-            ''|\#*) continue ;;
+            ''|'#'*|'#'*) continue ;;
         esac
-        # Strip one pair of surrounding single or double quotes from value.
-        case "$value" in
-            \'*\') value="${value#\'}"; value="${value%\'}" ;;
-            \"*\") value="${value#\"}"; value="${value%\"}" ;;
-        esac
-        if [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        key="${key#export }"
+        key="${key//[[:space:]]/}"
+        value="${value%$'\r'}"
+        # Strip one matching pair of surrounding quotes.
+        first="${value:0:1}"
+        last="${value: -1}"
+        if [ "${#value}" -ge 2 ] && [ "$first" = "$last" ] && \
+           { [ "$first" = '"' ] || [ "$first" = "'" ]; }; then
+            value="${value:1:${#value}-2}"
+        fi
+        if printf '%s' "$key" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*$'; then
             export "$key=$value"
         fi
     done < "$ENV_FILE"
@@ -207,10 +210,20 @@ PY
                     continue
                 fi
             fi
-            # Hash the staged file before publishing, so the recorded digest
-            # describes the bytes we are about to move, not whatever lands there.
+            # Hash the staged bytes, then publish with a hard link: ln fails
+            # atomically if the destination appeared since the check above, so a
+            # file created in that window is never clobbered and then claimed.
             staged_hash="$(sha256sum "$f" | cut -d' ' -f1)"
-            mv -f "$f" "$dest"
+            set +e
+            ln -T "$f" "$dest" 2>/dev/null
+            publish_rc=$?
+            set -e
+            if [ "$publish_rc" -ne 0 ]; then
+                echo "warning: $dest exists or cannot be linked; not overwriting" >&2
+                rm -f "$f"
+                continue
+            fi
+            rm -f "$f"
             # Record or refresh ownership, so uninstall can verify the hash and a
             # later refresh does not treat the file as unowned. The row goes into
             # [files]; appending at the end of the file would land it in whatever
@@ -290,10 +303,16 @@ if [ -e "$STATE_FILE" ] || [ -L "$STATE_FILE" ]; then
     fi
 fi
 state_hash="$(sha256sum "$PROBE_TMP" | cut -d' ' -f1)"
-mv -f "$PROBE_TMP" "$STATE_FILE"
-# The file on disk now is the one we just wrote, so hash that and record it. If
-# the path was swapped between the ownership check and this rename, the hash
-# recorded here will not match at the next run and the file will be left alone.
+set +e
+ln -T "$PROBE_TMP" "$STATE_FILE" 2>/dev/null
+publish_rc=$?
+set -e
+if [ "$publish_rc" -ne 0 ]; then
+    echo "warning: $STATE_FILE appeared during the sweep; not overwriting" >&2
+    rm -f "$PROBE_TMP"
+    exit 0
+fi
+rm -f "$PROBE_TMP"
 # Record or refresh the state file's hash so uninstall can verify it.
 tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
 if grep -qF "$STATE_FILE " "$MANIFEST" 2>/dev/null; then

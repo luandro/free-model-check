@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Eleventh pass on 'git diff main' in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nYour last two findings:\n1. The skill compared bare sha256sum hex against a sha256:-prefixed id. It now compares the state's id to 'sha256:<digest>' built from sha256sum's first field.\n2. The wrapper checked state ownership before the sweep and replaced unconditionally. It now re-verifies the recorded hash after the sweep and before mv, warning and skipping if the file changed.\n\nVerified: install -> wrapper -> update -> uninstall all exit 0 leaving only refresh.lock.\n\nReport anything still blocking. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}
