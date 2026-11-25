@@ -1,9 +1,0 @@
-{
-  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Re-review scripts/free-models-probe.py in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior after fixes.\n\nYour previous blockers, and what changed:\n1. Child cleanup on sweep expiry/Ctrl-C: added a module-level live-child registry (register_child/forget_child/kill_live_children) and a try/finally in run_sweep that SIGKILLs every registered child group.\n2. Blocking pipe write: send_request now sets the fd non-blocking (fcntl) and uses select bounded by the sweep deadline.\n3. Secret redaction: added redact(); provider error bodies, URLError/OSError reasons, and CLI stderr now pass through it; secrets travel to the child inside the stdin JSON request, never argv.\n4. https->http same-host redirect: SafeRedirectHandler now compares scheme as well as host.\n5. Also fixed: unhandled 3xx now reported as 'unfollowed redirect N' (available null, not false); cross-host redirect is null; falsy top-level error key now fails; relative OPENCODE_BIN rejected; as_number handles 10**400; sweep_budget_seconds stays a float.\n\nVerify each fix is real and complete, and look for anything new. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
-  "perAgentQuery": {},
-  "graftReads": 0,
-  "sourceReads": 0,
-  "savedTokens": 0,
-  "injectedPointers": [],
-  "nudges": 0
-}

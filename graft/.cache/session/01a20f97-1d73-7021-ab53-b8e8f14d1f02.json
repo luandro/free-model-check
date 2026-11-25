@@ -1,9 +1,0 @@
-{
-  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Review the new file scripts/free-models-probe.py in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior against its brief at /tmp/opencode/t1-probe-brief.md.\n\nContext: this script reads a free-model catalogue JSON, selects models apt for coding, probes each zero-priced route for liveness (HTTP POST chat/completions for openrouter/kilo, CLI for opencode), and writes a JSON state file. Every probe runs in a child process with a hard wall-clock sweep deadline.\n\nReview for: correctness against the brief's classification table and schema, credential handling (must never log secrets), the sweep deadline actually being enforced, process/pipe leaks, atomic write correctness, exit codes, and any security issue. Note the brief lives in /tmp which may be readable.\n\nOutput findings tagged BLOCKER/RISK/NIT/OK with file:line evidence. Be concise.",
-  "perAgentQuery": {},
-  "graftReads": 0,
-  "sourceReads": 0,
-  "savedTokens": 0,
-  "injectedPointers": [],
-  "nudges": 0
-}

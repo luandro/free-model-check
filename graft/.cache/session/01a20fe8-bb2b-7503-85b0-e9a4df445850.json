@@ -1,9 +1,0 @@
-{
-  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Fifth pass on scripts/free-models-probe.py in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nChanges since your last review:\n1. bwrap now gets --die-with-parent and --as-pid-1, so bwrap is the namespace init whose lifetime is tied to the probe worker; a sweep-deadline kill of the worker tears the namespace down.\n2. A bwrap setup failure (stderr starting 'bwrap:') now returns available=null instead of false, so an untested route is not reported dead.\n3. short_reason takes secrets and redacts BEFORE its 120-char cut; the double-redact at the call sites is gone.\n\nVerified locally: a hanging CLI with a setsid grandchild, killed by a 4s sweep deadline, leaves no survivors.\n\nConfirm and flag anything remaining. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
-  "perAgentQuery": {},
-  "graftReads": 0,
-  "sourceReads": 0,
-  "savedTokens": 0,
-  "injectedPointers": [],
-  "nudges": 0
-}
