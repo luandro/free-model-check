@@ -75,10 +75,13 @@ if [ "$DRY_RUN" -eq 1 ]; then
     exit 0
 fi
 
-# 1. Ensure the state directory exists.
+# 2. Ensure the state directory exists.
+# 0700: the publish path below relies on no other account being able to write
+# here, which is what makes its check-then-link window unreachable in practice.
 mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR" 2>/dev/null || true
 
-# 2. Acquire the exclusive lock before loading credentials.
+# 3. Acquire the exclusive lock before loading credentials.
 # X timeout
 # would queue concurrent ticks instead of skipping them.
 # The system flock is preferred: some homebrew builds return 0 without ever
@@ -104,7 +107,7 @@ if ! "$FLOCK_BIN" -w 900 9; then
     exit 75
 fi
 
-# 3. Installation-state check.
+# 4. Installation-state check.
 if [ ! -f "$MANIFEST" ]; then
     echo "free-models-junior is not installed (no manifest); nothing to do" >&2
     exit 0
@@ -127,7 +130,7 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 77
 fi
 
-# 4. Load credentials from $ENV_FILE as data (never printed).
+# 5. Load credentials from $ENV_FILE as data (never printed).
 if [ -f "$ENV_FILE" ]; then
     # Grammar matches install.sh and the probe: optional "export ", KEY=VALUE,
     # one pair of surrounding quotes stripped. A line whose key is not a valid
@@ -154,7 +157,7 @@ else
     echo "warning: env file $ENV_FILE not found; continuing" >&2
 fi
 
-# 5. Filter step (unless --skip-filter).
+# 6. Filter step (unless --skip-filter).
 if [ "$SKIP_FILTER" -eq 0 ]; then
     STAGE="$STATE_DIR/staging-$$"
     mkdir -p "$STAGE"
@@ -267,7 +270,7 @@ PY
     trap - EXIT
 fi
 
-# 6. Probe.
+# 7. Probe.
 if [ ! -f "$PROBE" ]; then
     echo "probe script not found at $PROBE" >&2
     exit 77
@@ -361,7 +364,7 @@ else
 fi
 mv "$tmp_manifest" "$MANIFEST"
 
-# 7. Success.
+# 8. Success.
 cat_mtime="$(stat -c %Y "$CATALOGUE")"
 state_mtime="$(stat -c %Y "$STATE_FILE")"
 echo "refresh ok: catalogue mtime $cat_mtime generated_unix $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["summary"]["generated_unix"])' "$CATALOGUE" 2>/dev/null || echo unknown) state mtime $state_mtime"

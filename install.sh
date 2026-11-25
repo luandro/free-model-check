@@ -37,6 +37,7 @@ sha_of() { sha256sum "$1" | cut -d' ' -f1; }
 # Replaced by part 3; present now so --uninstall is not silently ignored.
 do_uninstall() {
     mkdir -p "$STATE_DIR"
+    chmod 700 "$STATE_DIR" 2>/dev/null || true
 
     local flock_bin=""
     for candidate in /usr/bin/flock /bin/flock; do
@@ -458,6 +459,7 @@ done < "$REPO_ROOT/.env"
 
 # Step 2
 mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR" 2>/dev/null || true
 
 # Step 3: Lock
 exec 9>"$STATE_DIR/refresh.lock"
@@ -811,6 +813,13 @@ CATALOGUE_PUBLISHED=0
 # Uses a hard link, which fails atomically when the destination exists, so there
 # is no check-then-rename window and no fallback that could race. Returns 0 when
 # published, 1 when the destination already exists.
+# Publish a staged file to $STATE_DIR without ever clobbering an existing path.
+# The state dir is created 0700 by the installer, so no other account can write
+# to it; the remaining check-then-link window is therefore only reachable by a
+# process running as this user, which is out of scope. Within that boundary:
+#   - replace=1 (an --update of an owned path) uses -f after re-verifying the
+#     recorded hash against a plain file;
+#   - otherwise a plain ln -T is used, which fails atomically if anything exists.
 publish_no_clobber() {
     local src="$1" dest="$2" replace="${3:-0}"
     # -T treats the destination as a plain file: without it, a symlink to a
