@@ -253,12 +253,23 @@ def load_credentials(env_path: Path, repo_env: Path) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def load_catalogue(path: Path) -> tuple[dict[str, Any], bytes]:
-    """Read the catalogue bytes and decode them as a JSON object."""
+def load_catalogue(path: Path, expect_sha256: str | None = None) -> tuple[dict[str, Any], bytes]:
+    """Read the catalogue bytes and decode them as a JSON object.
+
+    When ``expect_sha256`` is given (a bare hex digest), the bytes actually read
+    must match it. Checking here rather than in the caller closes the gap between
+    a separate hash pass and this read.
+    """
     try:
         raw = path.read_bytes()
     except OSError as exc:
         raise CatalogueError(f"cannot read catalogue {path}: {exc.strerror or exc}") from exc
+    if expect_sha256:
+        actual = hashlib.sha256(raw).hexdigest()
+        if actual != expect_sha256:
+            raise CatalogueError(
+                f"catalogue {path} changed while being read; refusing to probe it"
+            )
     try:
         data = json.loads(raw)
     except (ValueError, UnicodeDecodeError) as exc:
@@ -1157,6 +1168,11 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--state", default=DEFAULT_STATE, help="state JSON output path")
     parser.add_argument("--env-file", default=DEFAULT_ENV_FILE, help="credentials env file")
     parser.add_argument(
+        "--expect-sha256",
+        default=None,
+        help="require the catalogue bytes to match this bare hex digest",
+    )
+    parser.add_argument(
         "--sweep-budget",
         type=float,
         default=DEFAULT_SWEEP_BUDGET,
@@ -1187,7 +1203,9 @@ def run_sweep(argv: list[str]) -> int:
     env_path = Path(os.path.expanduser(args.env_file))
     repo_env = source_repo_root() / ".env"
     try:
-        catalogue, raw_bytes = load_catalogue(catalogue_path)
+        # The caller may have verified a hash it read separately; pass it so the
+        # check is made against the exact bytes parsed here, not a second read.
+        catalogue, raw_bytes = load_catalogue(catalogue_path, args.expect_sha256)
         catalogue_unix = catalogue_generated_unix(catalogue)
     except CatalogueError as exc:
         print(f"free-models-probe: {exc}", file=sys.stderr)

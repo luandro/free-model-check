@@ -266,7 +266,8 @@ if [ -e "$STATE_FILE" ]; then
     fi
 fi
 PROBE_TMP="$STATE_FILE.tmp.$$"
-python3 "$PROBE" --catalogue "$CATALOGUE" --state "$PROBE_TMP" --env-file "$ENV_FILE" || prc=$?
+python3 "$PROBE" --catalogue "$CATALOGUE" --state "$PROBE_TMP" --env-file "$ENV_FILE" \
+    --expect-sha256 "$cat_recorded" || prc=$?
 if [ "$prc" -ne 0 ]; then
     rm -f "$PROBE_TMP"
     echo "probe failed (exit $prc)" >&2
