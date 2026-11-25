@@ -737,22 +737,18 @@ mkdir -p "$STAGE"
 CATALOGUE_PUBLISHED=0
 # Publish a staged file to $STATE_DIR without ever clobbering an existing path.
 # Uses a hard link, which fails atomically when the destination exists, so there
-# is no check-then-rename window. Returns 0 when published, 1 when skipped.
+# is no check-then-rename window and no fallback that could race. Returns 0 when
+# published, 1 when the destination already exists.
 publish_no_clobber() {
     local src="$1" dest="$2"
-    if [[ -e "$dest" || -L "$dest" ]]; then
-        return 1
-    fi
-    if ln "$src" "$dest" 2>/dev/null; then
+    # -T treats the destination as a plain file: without it, a symlink to a
+    # directory would receive the link inside that directory and report success.
+    # ln fails if dest exists (file, dangling symlink, or directory).
+    if ln -T "$src" "$dest" 2>/dev/null; then
         rm -f "$src"
         return 0
     fi
-    # A filesystem without hard links: fall back to a guarded rename.
-    if [[ -e "$dest" || -L "$dest" ]]; then
-        return 1
-    fi
-    mv -f "$src" "$dest"
-    return 0
+    return 1
 }
 
 publish_catalogue() {
