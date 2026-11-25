@@ -190,11 +190,13 @@ PY
     # Publish atomically: mv each staged free_models* regular file into $STATE_DIR.
     # A destination this installer does not own is never overwritten: a refresh
     # must not claim a pre-existing catalogue, or uninstall would later delete it.
+    # A skipped file is removed from staging so the next run starts clean.
     for f in "$STAGE"/free_models*; do
         if [ -f "$f" ]; then
             dest="$STATE_DIR/$(basename "$f")"
             if [ -e "$dest" ] && ! grep -qF "$dest " "$MANIFEST" 2>/dev/null; then
                 echo "warning: $dest exists and is not owned; not overwriting" >&2
+                rm -f "$f"
                 continue
             fi
             mv -f "$f" "$dest"
@@ -212,11 +214,20 @@ if [ ! -f "$PROBE" ]; then
 fi
 
 prc=0
-python3 "$PROBE" --catalogue "$CATALOGUE" --state "$STATE_FILE" --env-file "$ENV_FILE" || prc=$?
+# Probe to a staging path, then publish only if the state file is ours or absent.
+# A pre-existing state file is never replaced by a scheduled sweep.
+if [ -e "$STATE_FILE" ] && ! grep -qF "$STATE_FILE " "$MANIFEST" 2>/dev/null; then
+    echo "warning: $STATE_FILE exists and is not owned; not overwriting" >&2
+    exit 0
+fi
+PROBE_TMP="$STATE_FILE.tmp.$$"
+python3 "$PROBE" --catalogue "$CATALOGUE" --state "$PROBE_TMP" --env-file "$ENV_FILE" || prc=$?
 if [ "$prc" -ne 0 ]; then
+    rm -f "$PROBE_TMP"
     echo "probe failed (exit $prc)" >&2
     exit "$prc"
 fi
+mv -f "$PROBE_TMP" "$STATE_FILE"
 
 # 7. Success.
 # The probe rewrote the state file, so refresh its recorded hash when the

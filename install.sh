@@ -235,20 +235,27 @@ do_uninstall() {
         fi
     fi
 
-    # Generated outputs are rewritten by every refresh, so recorded hashes go
-    # stale. Remove them by name ONLY when the manifest recorded them at install
-    # time (bootstrap records every file it publishes); a catalogue that already
-    # existed and was skipped is not ours and must survive.
+    # Generated outputs are rewritten by every refresh, so their recorded hashes
+    # go stale. They are removed by name only when the manifest claims the path
+    # AND the file still looks like our own output, so a user replacement at a
+    # previously owned path survives.
     local generated
     for generated in free_models.json free_models.csv free_models_stealthmark.json \
                       free_models_stealthmark.csv free_models_published.json \
                       free_models_published.csv free_models_unbenchmarked.json \
                       free_models_unbenchmarked.csv free_models_diagnostics.json \
                       free_models_unmatched.json free_models_junior.json; do
-        if [[ -f "$STATE_DIR/$generated" ]] \
-           && grep -qF "$STATE_DIR/$generated " "$MANIFEST" 2>/dev/null; then
-            rm -f "$STATE_DIR/$generated"
-            removed_files+=("$STATE_DIR/$generated")
+        local target="$STATE_DIR/$generated"
+        [[ -f "$target" ]] || continue
+        grep -qF "$target " "$MANIFEST" 2>/dev/null || continue
+        # Our catalogue is valid JSON; a user replacement usually is not. Only
+        # delete when the file still parses as a JSON object.
+        if python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$target" 2>/dev/null; then
+            rm -f "$target"
+            removed_files+=("$target")
+        else
+            printf 'WARNING: %s was replaced with non-JSON content; leaving it alone\n' "$target" >&2
+            skipped_files+=("$target")
         fi
     done
 
@@ -258,12 +265,11 @@ do_uninstall() {
     # backup, an unreadable entry — means it is not ours to delete.
     local stage="$STATE_DIR/staging-bootstrap"
     if [[ -d "$stage" ]]; then
-        # Only regular files named free_models* are ours. A subdirectory (even one
-        # named free_models_backup) or an unreadable entry means the directory is
-        # not ours to delete.
+        # Only plain regular files named free_models* are ours. Directories,
+        # symlinks, and any other name mean the directory is not ours to delete.
         local unexpected
         unexpected="$(find "$stage" -mindepth 1 -maxdepth 1 \
-            \( -type d -o ! -name 'free_models*' \) -print 2>/dev/null)"
+            \( ! -type f -o ! -name 'free_models*' \) -print 2>/dev/null)"
         if [[ -n "$unexpected" ]]; then
             printf 'WARNING: %s has unexpected content; leaving it alone\n' "$stage" >&2
         else
@@ -726,6 +732,9 @@ publish_catalogue() {
         local dest="$STATE_DIR/$(basename "$src")"
         if [[ -e "$dest" ]]; then
             printf 'WARNING: %s already exists; not overwriting\n' "$dest" >&2
+            # Drop the skipped file so a later --update does not see a non-empty
+            # staging dir and refuse to proceed.
+            rm -f "$src"
             continue
         fi
         mv "$src" "$dest"
@@ -754,14 +763,47 @@ publish_catalogue
 # created it, so a pre-existing state file is never adopted for deletion.
 state_existed=0
 if [[ -e "$STATE_DIR/free_models_junior.json" ]]; then state_existed=1; fi
-timeout 700 python3 "$STATE_DIR/free-models-probe.py" \
-    --catalogue "$STATE_DIR/free_models.json" \
-    --state "$STATE_DIR/free_models_junior.json" \
-    --env-file "$STATE_DIR/free-models.env" || die "probe bootstrap failed" 1
-if [[ $state_existed -eq 0 && -f "$STATE_DIR/free_models_junior.json" ]]; then
-    manifest_add "[files]" "$STATE_DIR/free_models_junior.json sha256:$(sha_of "$STATE_DIR/free_models_junior.json")"
+if [[ ! -f "$STATE_DIR/free_models.json" ]]; then
+    # No usable catalogue (for example every publish was skipped): leave the
+    # existing state alone rather than failing the whole install.
+    printf 'WARNING: no catalogue published; skipping the bootstrap probe\n' >&2
+    rm -rf "$STAGE"
+    stage_ready=0
+else
+    stage_ready=1
 fi
-rm -rf "$STAGE"
+if [[ $stage_ready -eq 1 ]]; then
+    # Probe only against a catalogue this run published; a pre-existing one may
+    # be stale or foreign, and probing it could fail or cost a request.
+    if ! grep -qF "$STATE_DIR/free_models.json " "$MANIFEST" 2>/dev/null; then
+        printf 'WARNING: catalogue was not published by this run; skipping the bootstrap probe\n' >&2
+        rm -rf "$STAGE"
+        stage_ready=0
+    fi
+fi
+if [[ $stage_ready -eq 1 ]]; then
+    # Probe to a staging path first: a pre-existing state file must not be
+    # replaced by a writer, and a failed sweep must not destroy it.
+    PROBE_STATE="$STAGE/free_models_junior.json"
+    probe_rc=0
+    timeout 700 python3 "$STATE_DIR/free-models-probe.py" \
+        --catalogue "$STATE_DIR/free_models.json" \
+        --state "$PROBE_STATE" \
+        --env-file "$STATE_DIR/free-models.env" || probe_rc=$?
+    if [[ $probe_rc -ne 0 ]]; then
+        # A stale or pre-existing catalogue is not fatal: keep what is there and
+        # let the scheduled refresh sort it out.
+        printf 'WARNING: bootstrap probe failed (exit %d); keeping existing state\n' "$probe_rc" >&2
+        rm -f "$PROBE_STATE"
+    elif [[ $state_existed -eq 0 && -f "$PROBE_STATE" ]]; then
+        mv "$PROBE_STATE" "$STATE_DIR/free_models_junior.json"
+        manifest_add "[files]" "$STATE_DIR/free_models_junior.json sha256:$(sha_of "$STATE_DIR/free_models_junior.json")"
+    elif [[ $state_existed -eq 1 ]]; then
+        printf 'WARNING: %s already exists; not overwriting\n' "$STATE_DIR/free_models_junior.json" >&2
+        rm -f "$PROBE_STATE"
+    fi
+    rm -rf "$STAGE"
+fi
 
 # Step 11: Timers
 systemctl --user daemon-reload || printf 'WARNING: systemctl --user daemon-reload failed\n' >&2
