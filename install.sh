@@ -48,7 +48,7 @@ do_uninstall() {
     fi
     [[ -n "$flock_bin" ]] || die "flock not found" 77
 
-    exec 9>"$STATE_DIR/refresh.lock"
+    exec 9>>"$STATE_DIR/refresh.lock"
     "$flock_bin" -w 120 9 || die "could not acquire lock after 120s" 75
 
     if [[ ! -f "$MANIFEST" ]]; then
@@ -461,8 +461,17 @@ done < "$REPO_ROOT/.env"
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR" 2>/dev/null || true
 
-# Step 3: Lock
-exec 9>"$STATE_DIR/refresh.lock"
+# Step 3: Lock. Open with >> (append) rather than >: O_TRUNC would destroy a
+# pre-existing file before the lock is taken. Append never truncates, and flock
+# only needs a stable inode.
+if [[ -e "$STATE_DIR/refresh.lock" && ! -f "$STATE_DIR/refresh.lock" ]]; then
+    die "$STATE_DIR/refresh.lock exists and is not a regular file" 1
+fi
+if [[ ! -e "$STATE_DIR/refresh.lock" ]]; then
+    ( umask 077; : >"$STATE_DIR/refresh.lock" )
+    manifest_add "[files]" "$STATE_DIR/refresh.lock sha256:$(sha_of "$STATE_DIR/refresh.lock")"
+fi
+exec 9>>"$STATE_DIR/refresh.lock"
 # Prefer the system flock: some homebrew builds return 0 without taking the lock.
 FLOCK_BIN=""
 for candidate in /usr/bin/flock /bin/flock; do

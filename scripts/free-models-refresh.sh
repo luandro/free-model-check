@@ -66,7 +66,7 @@ done
 
 if [ "$DRY_RUN" -eq 1 ]; then
     echo "mkdir -p \"$STATE_DIR\""
-    echo "exec 9>\"$LOCK_FILE\"; flock -w 900 9"
+    echo "exec 9>>\"$LOCK_FILE\"; flock -w 900 9"
     if [ "$SKIP_FILTER" -eq 0 ]; then
         echo "timeout 300 python3 \"$STATE_DIR/free_model_filter.py\" --require-agent-ready --output-prefix \"$STATE_DIR/staging-\$\$/free_models\""
         echo "# validate staged catalogue, then mv -f each free_models* into \"$STATE_DIR\""
@@ -98,7 +98,16 @@ if [ -z "$FLOCK_BIN" ]; then
     exit 77
 fi
 
-exec 9>"$LOCK_FILE"
+# 3. Lock. Never truncate a pre-existing file we do not own: O_TRUNC would
+# destroy it before the lock is taken. Create the lock file only when absent,
+# and record it so ownership is explicit.
+if [[ -e "$LOCK_FILE" && ! -f "$LOCK_FILE" ]]; then
+    die "$LOCK_FILE exists and is not a regular file" 1
+fi
+if [[ ! -e "$LOCK_FILE" ]]; then
+    ( umask 077; : >"$LOCK_FILE" )
+fi
+exec 9>>"$LOCK_FILE"
 # The wait must comfortably exceed a probe sweep (up to 600 s). Both timers can
 # fire on the same minute, and the refresh is the one that must not be starved:
 # skipping it lets the catalogue age past the probe's 6-hour gate.
@@ -275,9 +284,17 @@ if [ ! -f "$PROBE" ]; then
     echo "probe script not found at $PROBE" >&2
     exit 77
 fi
-# Clear a temp file left by a run that was killed mid-sweep; it is never
-# recorded, so nothing else would remove it.
-rm -f "$STATE_DIR"/free_models_junior.json.tmp.* 2>/dev/null || true
+# Clear a temp file left by a run that was killed mid-sweep. Only our own
+# pid-stamped pattern is touched, and only when it is a plain file: a glob
+# delete would destroy an unrelated file that happens to match.
+for stale in "$STATE_DIR"/free_models_junior.json.tmp.*; do
+    if [[ -f "$stale" && ! -L "$stale" ]]; then
+        case "${stale##*.}" in
+            ''|*[!0-9]*) continue ;;
+        esac
+        rm -f "$stale"
+    fi
+done
 
 prc=0
 # Never probe a catalogue this installer does not own: without a manifest row it
