@@ -740,7 +740,8 @@ publish_catalogue() {
     for src in "$STAGE"/free_models*; do
         [[ -f "$src" ]] || continue
         local dest="$STATE_DIR/$(basename "$src")"
-        if [[ -e "$dest" ]]; then
+        # -L too: a dangling symlink is still a user-owned path.
+        if [[ -e "$dest" || -L "$dest" ]]; then
             printf 'WARNING: %s already exists; not overwriting\n' "$dest" >&2
             # Drop the skipped file so a later --update does not see a non-empty
             # staging dir and refuse to proceed.
@@ -812,8 +813,16 @@ if [[ $stage_ready -eq 1 ]]; then
         printf 'WARNING: bootstrap probe failed (exit %d); keeping existing state\n' "$probe_rc" >&2
         rm -f "$PROBE_STATE"
     elif [[ $state_existed -eq 0 && -f "$PROBE_STATE" ]]; then
-        mv "$PROBE_STATE" "$STATE_DIR/free_models_junior.json"
-        manifest_add "[files]" "$STATE_DIR/free_models_junior.json sha256:$(sha_of "$STATE_DIR/free_models_junior.json")"
+        # Re-check the destination: if something appeared there during the sweep,
+        # keep it rather than clobbering it.
+        if [[ -e "$STATE_DIR/free_models_junior.json" || -L "$STATE_DIR/free_models_junior.json" ]]; then
+            printf 'WARNING: %s appeared during the sweep; not overwriting\n' \
+                "$STATE_DIR/free_models_junior.json" >&2
+            rm -f "$PROBE_STATE"
+        else
+            mv "$PROBE_STATE" "$STATE_DIR/free_models_junior.json"
+            manifest_add "[files]" "$STATE_DIR/free_models_junior.json sha256:$(sha_of "$STATE_DIR/free_models_junior.json")"
+        fi
     elif [[ $state_existed -eq 1 ]]; then
         printf 'WARNING: %s already exists; not overwriting\n' "$STATE_DIR/free_models_junior.json" >&2
         rm -f "$PROBE_STATE"

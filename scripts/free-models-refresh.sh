@@ -207,12 +207,15 @@ PY
                     continue
                 fi
             fi
+            # Hash the staged file before publishing, so the recorded digest
+            # describes the bytes we are about to move, not whatever lands there.
+            staged_hash="$(sha256sum "$f" | cut -d' ' -f1)"
             mv -f "$f" "$dest"
             # Record or refresh ownership, so uninstall can verify the hash and a
             # later refresh does not treat the file as unowned. The row goes into
             # [files]; appending at the end of the file would land it in whatever
             # section happens to be last.
-            dest_hash="$(sha256sum "$dest" | cut -d' ' -f1)"
+            dest_hash="$staged_hash"
             tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
             if grep -qF "$dest " "$MANIFEST" 2>/dev/null; then
                 awk -v old="$dest sha256:" -v new="$dest sha256:$dest_hash" '
@@ -286,12 +289,12 @@ if [ -e "$STATE_FILE" ] || [ -L "$STATE_FILE" ]; then
         exit 0
     fi
 fi
+state_hash="$(sha256sum "$PROBE_TMP" | cut -d' ' -f1)"
 mv -f "$PROBE_TMP" "$STATE_FILE"
 # The file on disk now is the one we just wrote, so hash that and record it. If
 # the path was swapped between the ownership check and this rename, the hash
 # recorded here will not match at the next run and the file will be left alone.
 # Record or refresh the state file's hash so uninstall can verify it.
-state_hash="$(sha256sum "$STATE_FILE" | cut -d' ' -f1)"
 tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
 if grep -qF "$STATE_FILE " "$MANIFEST" 2>/dev/null; then
     awk -v old="$STATE_FILE sha256:" -v new="$STATE_FILE sha256:$state_hash" '
@@ -313,16 +316,6 @@ fi
 mv "$tmp_manifest" "$MANIFEST"
 
 # 7. Success.
-# The probe rewrote the state file, so refresh its recorded hash when the
-# manifest claims it; otherwise uninstall would skip a file we do own.
-if [[ -f "$STATE_FILE" ]] && grep -qF "$STATE_FILE " "$MANIFEST" 2>/dev/null; then
-    new_hash="$(sha256sum "$STATE_FILE" | cut -d' ' -f1)"
-    tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
-    awk -v old="$STATE_FILE sha256:" -v new="$STATE_FILE sha256:$new_hash" '
-        index($0, old) == 1 { print new; next }
-        { print }
-    ' "$MANIFEST" >"$tmp_manifest" && mv "$tmp_manifest" "$MANIFEST"
-fi
 cat_mtime="$(stat -c %Y "$CATALOGUE")"
 state_mtime="$(stat -c %Y "$STATE_FILE")"
 echo "refresh ok: catalogue mtime $cat_mtime state $state_mtime"
