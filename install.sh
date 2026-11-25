@@ -748,7 +748,12 @@ publish_no_clobber() {
         rm -f "$src"
         return 0
     fi
-    return 1
+    # Distinguish "already there" from "the filesystem refused the link": the
+    # caller must not treat a hard-link-capability failure as a harmless skip.
+    if [[ -e "$dest" || -L "$dest" ]]; then
+        return 1
+    fi
+    return 2
 }
 
 publish_catalogue() {
@@ -760,7 +765,15 @@ publish_catalogue() {
         # describes exactly what we are about to move.
         local src_hash
         src_hash="$(sha_of "$src")"
-        if ! publish_no_clobber "$src" "$dest"; then
+        # errexit is disabled around the call so a non-zero rc reaches the check.
+        set +e
+        publish_no_clobber "$src" "$dest"
+        publish_rc=$?
+        set -e
+        if [[ $publish_rc -ne 0 ]]; then
+            if [[ $publish_rc -eq 2 ]]; then
+                die "cannot publish $dest: hard links are unavailable here" 1
+            fi
             printf 'WARNING: %s already exists; not overwriting\n' "$dest" >&2
             # Drop the skipped file so a later --update does not see a non-empty
             # staging dir and refuse to proceed.
@@ -835,8 +848,14 @@ if [[ $stage_ready -eq 1 ]]; then
         # appeared during the sweep is never clobbered, and the recorded digest
         # describes what we actually moved.
         probe_hash="$(sha_of "$PROBE_STATE")"
-        if publish_no_clobber "$PROBE_STATE" "$STATE_DIR/free_models_junior.json"; then
+        set +e
+        publish_no_clobber "$PROBE_STATE" "$STATE_DIR/free_models_junior.json"
+        publish_rc=$?
+        set -e
+        if [[ $publish_rc -eq 0 ]]; then
             manifest_add "[files]" "$STATE_DIR/free_models_junior.json sha256:$probe_hash"
+        elif [[ $publish_rc -eq 2 ]]; then
+            die "cannot publish $STATE_DIR/free_models_junior.json: hard links are unavailable here" 1
         else
             printf 'WARNING: %s already exists; not overwriting\n' \
                 "$STATE_DIR/free_models_junior.json" >&2
