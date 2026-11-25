@@ -200,6 +200,30 @@ PY
                 continue
             fi
             mv -f "$f" "$dest"
+            # Record or refresh ownership, so uninstall can verify the hash and a
+            # later refresh does not treat the file as unowned. The row goes into
+            # [files]; appending at the end of the file would land it in whatever
+            # section happens to be last.
+            dest_hash="$(sha256sum "$dest" | cut -d' ' -f1)"
+            tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
+            if grep -qF "$dest " "$MANIFEST" 2>/dev/null; then
+                awk -v old="$dest sha256:" -v new="$dest sha256:$dest_hash" '
+                    index($0, old) == 1 { print new; next }
+                    { print }
+                ' "$MANIFEST" >"$tmp_manifest"
+            else
+                awk -v row="$dest sha256:$dest_hash" '
+                    /^\[/ {
+                        if (inside) { print row; inside = 0 }
+                        inside = ($0 == "[files]")
+                        print
+                        next
+                    }
+                    { print }
+                    END { if (inside) print row }
+                ' "$MANIFEST" >"$tmp_manifest"
+            fi
+            mv "$tmp_manifest" "$MANIFEST"
         fi
     done
 
@@ -228,6 +252,27 @@ if [ "$prc" -ne 0 ]; then
     exit "$prc"
 fi
 mv -f "$PROBE_TMP" "$STATE_FILE"
+# Record or refresh the state file's hash so uninstall can verify it.
+state_hash="$(sha256sum "$STATE_FILE" | cut -d' ' -f1)"
+tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
+if grep -qF "$STATE_FILE " "$MANIFEST" 2>/dev/null; then
+    awk -v old="$STATE_FILE sha256:" -v new="$STATE_FILE sha256:$state_hash" '
+        index($0, old) == 1 { print new; next }
+        { print }
+    ' "$MANIFEST" >"$tmp_manifest"
+else
+    awk -v row="$STATE_FILE sha256:$state_hash" '
+        /^\[/ {
+            if (inside) { print row; inside = 0 }
+            inside = ($0 == "[files]")
+            print
+            next
+        }
+        { print }
+        END { if (inside) print row }
+    ' "$MANIFEST" >"$tmp_manifest"
+fi
+mv "$tmp_manifest" "$MANIFEST"
 
 # 7. Success.
 # The probe rewrote the state file, so refresh its recorded hash when the

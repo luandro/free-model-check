@@ -247,16 +247,20 @@ do_uninstall() {
                       free_models_unmatched.json free_models_junior.json; do
         local target="$STATE_DIR/$generated"
         [[ -f "$target" ]] || continue
-        grep -qF "$target " "$MANIFEST" 2>/dev/null || continue
-        # Our catalogue is valid JSON; a user replacement usually is not. Only
-        # delete when the file still parses as a JSON object.
-        if python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$target" 2>/dev/null; then
-            rm -f "$target"
-            removed_files+=("$target")
-        else
-            printf 'WARNING: %s was replaced with non-JSON content; leaving it alone\n' "$target" >&2
-            skipped_files+=("$target")
+        local recorded=""
+        recorded="$(grep -F "$target " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')"
+        if [[ -n "$recorded" ]]; then
+            local current
+            current="$(sha256sum "$target" | cut -d' ' -f1)"
+            if [[ "$current" != "$recorded" ]]; then
+                # The content changed since we recorded it: the user replaced it.
+                printf 'WARNING: %s was modified after install; leaving it alone\n' "$target" >&2
+                skipped_files+=("$target")
+                continue
+            fi
         fi
+        rm -f "$target"
+        removed_files+=("$target")
     done
 
     rm -f "$MANIFEST"
@@ -265,11 +269,14 @@ do_uninstall() {
     # backup, an unreadable entry — means it is not ours to delete.
     local stage="$STATE_DIR/staging-bootstrap"
     if [[ -d "$stage" ]]; then
-        # Only plain regular files named free_models* are ours. Directories,
-        # symlinks, and any other name mean the directory is not ours to delete.
+        # Only plain regular files named exactly free_models.json/.csv or
+        # free_models_<lane>.json/.csv are ours. A free_models_backup file,
+        # a directory, or a symlink means the dir is not ours to delete.
         local unexpected
         unexpected="$(find "$stage" -mindepth 1 -maxdepth 1 \
-            \( ! -type f -o ! -name 'free_models*' \) -print 2>/dev/null)"
+            -regextype posix-extended \
+            \( ! -type f -o ! -regex '.*/free_models(_[a-z]+)?\.(json|csv)' \) \
+            -print 2>/dev/null)"
         if [[ -n "$unexpected" ]]; then
             printf 'WARNING: %s has unexpected content; leaving it alone\n' "$stage" >&2
         else
@@ -725,6 +732,9 @@ STAGE="$STATE_DIR/staging-bootstrap"
 mkdir -p "$STAGE"
 # Publish only when the destination does not already exist, so a pre-existing
 # catalogue is never overwritten and later claimed by uninstall.
+# Bootstrap skips the probe when the catalogue was not published by THIS run. A
+# manifest entry from an earlier run is not evidence, so track publication here.
+CATALOGUE_PUBLISHED=0
 publish_catalogue() {
     local src
     for src in "$STAGE"/free_models*; do
@@ -739,6 +749,7 @@ publish_catalogue() {
         fi
         mv "$src" "$dest"
         manifest_add "[files]" "$dest sha256:$(sha_of "$dest")"
+        CATALOGUE_PUBLISHED=1
     done
 }
 timeout 300 python3 "$REPO_ROOT/free_model_filter.py" --require-agent-ready \
@@ -775,7 +786,7 @@ fi
 if [[ $stage_ready -eq 1 ]]; then
     # Probe only against a catalogue this run published; a pre-existing one may
     # be stale or foreign, and probing it could fail or cost a request.
-    if ! grep -qF "$STATE_DIR/free_models.json " "$MANIFEST" 2>/dev/null; then
+    if [[ $CATALOGUE_PUBLISHED -eq 0 ]]; then
         printf 'WARNING: catalogue was not published by this run; skipping the bootstrap probe\n' >&2
         rm -rf "$STAGE"
         stage_ready=0
