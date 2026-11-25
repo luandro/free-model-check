@@ -1,0 +1,9 @@
+{
+  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Review the full diff 'git diff main' in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nIt adds an automated free-model junior pipeline:\n- scripts/free-models-probe.py: reads a catalogue, probes zero-priced routes, writes a state file\n- scripts/free-models-refresh.sh: flock-guarded wrapper, stages the catalogue then probes\n- install.sh: systemd units, skill symlink, AGENTS.md managed block, manifest-tracked uninstall\n- scripts/skills/free-models-junior/SKILL.md: the agent skill\n- README.md: docs\n\nThe probe and wrapper already passed several review rounds. Focus your attention on install.sh (the newest, largest surface) and on how the four pieces fit together: manifest format consistency between install.sh and the skill's [complete] check, the state file paths the skill expects versus what the probe writes, and whether uninstall can delete anything it does not own.\n\nOutput BLOCKER/RISK/NIT/OK with file:line. Be concise.",
+  "perAgentQuery": {},
+  "graftReads": 0,
+  "sourceReads": 0,
+  "savedTokens": 0,
+  "injectedPointers": [],
+  "nudges": 0
+}

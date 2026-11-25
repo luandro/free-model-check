@@ -6,7 +6,7 @@ description: Delegate small, well-scoped coding tasks to free benchmark-strong m
 ## What it is
 
 Free, benchmark-strong models as junior developers for scoped tasks; the list is
-refreshed automatically by systemd timers.
+refreshed automatically by systemd timers. `STATE_DIR` below defaults to `~/.software-factory`.
 
 ## When to use
 
@@ -21,12 +21,12 @@ refreshed automatically by systemd timers.
 
 ## Procedure
 
-1. Verify the install is complete. Read `$HOME/.software-factory/installed-manifest` and refuse to continue unless it contains a `[complete]` section whose only line is `1`. If it does not, the install is partial or an update is mid-flight: stop, the state file cannot be trusted.
-2. Read `$HOME/.software-factory/free_models_junior.json`. Reject the whole file (and tell the user to wait for the next probe cycle) when any of these hold:
+1. Verify the install is complete. Read `$STATE_DIR/installed-manifest` and refuse to continue unless it has a `[complete]` section whose only line is `1`. Otherwise the install is partial or an update is mid-flight: stop, the state file cannot be trusted.
+2. Read `$STATE_DIR/free_models_junior.json`. Reject the whole file (and tell the user to wait for the next probe cycle) when any of these hold:
    - `catalogue_generated_unix` is older than 6 hours
    - `catalogue_generated_unix` is missing, non-numeric, or in the future
    - `catalogue_generation_id` is missing or not of the form `sha256:<hex>`
-   - the state's `catalogue_generation_id` differs from `sha256sum "$HOME/.software-factory/free_models.json"` — a new catalogue was published but the probe has not run against it yet
+   - the state's `catalogue_generation_id` differs from `sha256sum "$STATE_DIR/free_models.json"` — a new catalogue was published but the probe has not run against it yet
 3. Choose a model: keep only models with `agent_ready: true` and a non-null `best_available_route`. Sort by `coding` descending, then `agentic` descending. Take the first whose chosen route's `last_probed` is younger than 2 hours and parseable. Everything else is stale.
 4. Build the model id: `"<provider>/<route_model>"` from `best_available_route`, e.g. `opencode/deepseek-v4.1-flash-free` or `kilo/baidu/ernie-5.5-flash-preview:free`. Do not invent ids.
 5. Delegate:
@@ -59,4 +59,4 @@ refreshed automatically by systemd timers.
 - If nothing is available, run `~/.software-factory/free-models-refresh.sh` manually or wait for the next 30-minute probe.
 - Do not edit the state file.
 - A one-token probe proves reachability, not coding quality.
-- Paths: state `~/.software-factory/free_models_junior.json`, catalogue `~/.software-factory/free_models.json`, lock `~/.software-factory/refresh.lock`, wrapper `~/.software-factory/free-models-refresh.sh`.
+- Paths: state `STATE_DIR/free_models_junior.json`, catalogue `STATE_DIR/free_models.json`, lock `STATE_DIR/refresh.lock`, wrapper `STATE_DIR/free-models-refresh.sh` (STATE_DIR defaults to `~/.software-factory`).
