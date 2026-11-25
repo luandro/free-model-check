@@ -273,6 +273,17 @@ if [ "$prc" -ne 0 ]; then
     echo "probe failed (exit $prc)" >&2
     exit "$prc"
 fi
+# Re-check ownership after the sweep: the state file may have been created or
+# edited while the probe ran, and it must not be overwritten then.
+if [ -e "$STATE_FILE" ]; then
+    recorded_now="$(grep -F "$STATE_FILE " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
+    current_now="$(sha256sum "$STATE_FILE" 2>/dev/null | cut -d' ' -f1)" || true
+    if [ -z "$recorded_now" ] || [ "$recorded_now" != "$current_now" ]; then
+        echo "warning: $STATE_FILE changed during the sweep; not overwriting" >&2
+        rm -f "$PROBE_TMP"
+        exit 0
+    fi
+fi
 mv -f "$PROBE_TMP" "$STATE_FILE"
 # Record or refresh the state file's hash so uninstall can verify it.
 state_hash="$(sha256sum "$STATE_FILE" | cut -d' ' -f1)"
