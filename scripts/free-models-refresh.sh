@@ -244,6 +244,16 @@ if [ ! -f "$PROBE" ]; then
 fi
 
 prc=0
+# Never probe a catalogue this installer does not own: without a manifest row it
+# was here before us, may be malformed, and may not even be a free-model report.
+cat_recorded="$(grep -F "$CATALOGUE " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
+cat_current="$(sha256sum "$CATALOGUE" 2>/dev/null | cut -d' ' -f1)" || true
+if [ -z "$cat_recorded" ] || [ "$cat_recorded" != "$cat_current" ]; then
+    # No manifest row, or the file changed since we recorded it: it is not ours
+    # to probe, it may be malformed, and it may not be a free-model report.
+    echo "warning: $CATALOGUE is not owned or was modified; skipping the probe" >&2
+    exit 0
+fi
 # Probe to a staging path, then publish only if the state file is ours or absent.
 # A pre-existing state file is never replaced by a scheduled sweep.
 if [ -e "$STATE_FILE" ]; then
