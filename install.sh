@@ -22,8 +22,8 @@ die() {
 usage() {
     cat <<'EOF' >&2
 Usage: install.sh [options]
-  --interval-refresh X   default 4h; accept 1h..4h, reject longer
-  --interval-probe X     default 30m; accept 15m..1h
+  --interval-refresh X   default 4h; accept 1h..4h (hours only, reject longer)
+  --interval-probe X     default 30m; accept 15m..60m (minutes only)
   --no-harness-integration
   --update
   --uninstall
@@ -238,33 +238,9 @@ do_uninstall() {
         fi
     fi
 
-    # Generated outputs are rewritten by every refresh, so their recorded hashes
-    # go stale. They are removed by name only when the manifest claims the path
-    # AND the file still looks like our own output, so a user replacement at a
-    # previously owned path survives.
-    local generated
-    for generated in free_models.json free_models.csv free_models_stealthmark.json \
-                      free_models_stealthmark.csv free_models_published.json \
-                      free_models_published.csv free_models_unbenchmarked.json \
-                      free_models_unbenchmarked.csv free_models_diagnostics.json \
-                      free_models_unmatched.json free_models_junior.json; do
-        local target="$STATE_DIR/$generated"
-        [[ -f "$target" ]] || continue
-        # No manifest row means we never created it: leave it alone.
-        local recorded=""
-        recorded="$(grep -F "$target " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
-        [[ -n "$recorded" ]] || continue
-        local current
-        current="$(sha256sum "$target" | cut -d' ' -f1)"
-        if [[ "$current" != "$recorded" ]]; then
-            # The content changed since we recorded it: the user replaced it.
-            printf 'WARNING: %s was modified after install; leaving it alone\n' "$target" >&2
-            skipped_files+=("$target")
-            continue
-        fi
-        rm -f "$target"
-        removed_files+=("$target")
-    done
+    # Generated outputs need no separate pass: the [files] loop above already
+    # covers every path the installer or the wrapper recorded, and it applies the
+    # same hash check. A second loop here only produced duplicate warnings.
 
     # Keep the manifest when anything was skipped: deleting it would leave the
     # surviving files unowned, so a re-run could not adopt or remove them.
@@ -332,9 +308,14 @@ manifest_add() {
         cat "$MANIFEST" >"$tmp"
     fi
     # Drop an existing row for the same path first, so --update replaces rather
-    # than duplicates and uninstall cannot report one path twice.
+    # than duplicates. The match is anchored to the whole first field: an
+    # unanchored substring would let a short key (the [complete] row's "1")
+    # delete unrelated rows.
     local key="${line%% *}"
-    grep -vF "$key " "$tmp" >"$tmp.dedup" 2>/dev/null || true
+    awk -v key="$key" '
+        index($0, key " ") == 1 { next }
+        { print }
+    ' "$tmp" >"$tmp.dedup" 2>/dev/null || true
     mv "$tmp.dedup" "$tmp"
     if grep -qxF "[$section]" "$tmp" 2>/dev/null; then
         # Insert the row at the end of its own section: after the header until
@@ -378,7 +359,13 @@ parse_interval() {
         [[ "$unit" == "m" ]] || die "$name interval must be in hours, got: $interval"
         (( value >= min && value <= max )) || die "$name interval ${value}m outside range ${min}m..${max}m"
         (( 60 % value == 0 )) || die "$name interval ${value}m must divide 60"
-        expr="*:0/${value}"
+        # 60m is the one-hour case; *:0/60 is rejected by systemd, so spell it
+        # as an hourly expression instead.
+        if [[ "$value" == "60" ]]; then
+            expr="*-*-* *:*:00"
+        else
+            expr="*:0/${value}"
+        fi
     elif [[ "$interval" =~ ^([0-9]+)h$ ]]; then
         value="${BASH_REMATCH[1]}"
         [[ "$unit" == "h" ]] || die "$name interval must be in minutes, got: $interval"
@@ -653,7 +640,6 @@ WantedBy=timers.target
 EOF
 manifest_add "[units]" "free-models-probe.timer sha256:$(sha_of "$UNIT_DIR/free-models-probe.timer")"
 
-if [[ $DRY_RUN -eq 1 ]]; then printf 'DRY RUN: no changes made\n'; exit 0; fi
 # --update: clear [complete] before step 8 if the manifest exists and has it
 if [[ $DO_UPDATE -eq 1 ]]; then
     if [[ -f "$MANIFEST" ]] && grep -qxF '[complete]' "$MANIFEST"; then
@@ -824,11 +810,18 @@ CATALOGUE_PUBLISHED=0
 # is no check-then-rename window and no fallback that could race. Returns 0 when
 # published, 1 when the destination already exists.
 publish_no_clobber() {
-    local src="$1" dest="$2"
+    local src="$1" dest="$2" replace="${3:-0}"
     # -T treats the destination as a plain file: without it, a symlink to a
     # directory would receive the link inside that directory and report success.
-    # ln fails if dest exists (file, dangling symlink, or directory).
-    if ln -T "$src" "$dest" 2>/dev/null; then
+    # With replace=1 (an --update of an owned path) -f is required, because the
+    # destination normally exists; the caller has already verified ownership and
+    # that the content is unchanged. Without it, plain ln fails atomically.
+    if [ "$replace" = "1" ]; then
+        if ln -T -f "$src" "$dest" 2>/dev/null; then
+            rm -f "$src"
+            return 0
+        fi
+    elif ln -T "$src" "$dest" 2>/dev/null; then
         rm -f "$src"
         return 0
     fi
@@ -849,9 +842,18 @@ publish_catalogue() {
         # describes exactly what we are about to move.
         local src_hash
         src_hash="$(sha_of "$src")"
+        # On --update an owned, unchanged destination is replaced; otherwise the
+        # non-clobbering path is used so a foreign file is never touched.
+        local replace=0
+        if [[ $DO_UPDATE -eq 1 && ( -e "$dest" || -L "$dest" ) ]]; then
+            local rec cur
+            rec="$(grep -F "$dest " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
+            cur="$(sha_of "$dest" 2>/dev/null)" || true
+            [[ -n "$rec" && "$rec" == "$cur" ]] && replace=1
+        fi
         # errexit is disabled around the call so a non-zero rc reaches the check.
         set +e
-        publish_no_clobber "$src" "$dest"
+        publish_no_clobber "$src" "$dest" "$replace"
         publish_rc=$?
         set -e
         if [[ $publish_rc -ne 0 ]]; then
@@ -872,10 +874,28 @@ publish_catalogue() {
         fi
     done
 }
-timeout 300 python3 "$STATE_DIR/free_model_filter.py" --require-agent-ready \
-    --output-prefix "$STAGE/free_models" || die "catalogue bootstrap failed" 1
-# Validate the staged catalogue before publishing anything.
-python3 - "$STAGE/free_models.json" <<'PY' || die "bootstrap JSON validation failed" 1
+# Stage inside the state dir under a name this installer owns. Preflight already
+# rejected a non-empty staging dir, so this is a plain mkdir.
+STAGE="$STATE_DIR/staging-bootstrap"
+mkdir -p "$STAGE"
+stage_ready=0
+if [[ $stage_ready -eq 0 ]]; then
+    # On --update with an owned, unchanged catalogue there is nothing to rebuild:
+    # the timer already refreshed it, so re-running the filter would spend 300 s
+    # and an AA request only to discard every byte at publish time.
+    cat_recorded="$(grep -F "$STATE_DIR/free_models.json " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
+    cat_current="$(sha256sum "$STATE_DIR/free_models.json" 2>/dev/null | cut -d' ' -f1)" || true
+    if [[ $DO_UPDATE -eq 1 && -n "$cat_recorded" && "$cat_recorded" == "$cat_current" ]]; then
+        printf 'NOTE: catalogue already owned and unchanged; skipping the filter\n' >&2
+        CATALOGUE_PUBLISHED=1
+        stage_ready=1
+    fi
+fi
+if [[ $stage_ready -eq 0 ]]; then
+    timeout 300 python3 "$STATE_DIR/free_model_filter.py" --require-agent-ready \
+        --output-prefix "$STAGE/free_models" || die "catalogue bootstrap failed" 1
+    # Validate the staged catalogue before publishing anything.
+    python3 - "$STAGE/free_models.json" <<'PY' || die "bootstrap JSON validation failed" 1
 import json, sys
 with open(sys.argv[1]) as handle:
     data = json.load(handle)
@@ -888,8 +908,9 @@ if isinstance(generated, bool) or not isinstance(generated, (int, float)):
 if not isinstance(data.get("models"), list):
     raise SystemExit("models missing or not a list")
 PY
-# Publish regular files only, recording each one.
-publish_catalogue
+    # Publish regular files only, recording each one.
+    publish_catalogue
+fi
 # The probe writes the state file directly. Claim it only when this bootstrap
 # created it, so a pre-existing state file is never adopted for deletion.
 state_existed=0
@@ -902,26 +923,6 @@ if [[ ! -f "$STATE_DIR/free_models.json" ]]; then
     rm -rf "$STAGE"
     stage_ready=0
 else
-    stage_ready=1
-fi
-if [[ $stage_ready -eq 1 ]]; then
-    # Probe only against a catalogue this run published; a pre-existing one may
-    # be stale or foreign, and probing it could fail or cost a request.
-    if [[ $CATALOGUE_PUBLISHED -eq 0 ]]; then
-        # On --update the catalogue is already owned and was refreshed by the
-        # timer, so re-probe it instead of discarding a build we just paid for.
-        cat_recorded="$(grep -F "$STATE_DIR/free_models.json " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
-        cat_current="$(sha256sum "$STATE_DIR/free_models.json" 2>/dev/null | cut -d' ' -f1)" || true
-        if [[ $DO_UPDATE -eq 1 && -n "$cat_recorded" && "$cat_recorded" == "$cat_current" ]]; then
-            printf 'NOTE: catalogue already owned and unchanged; probing it in place\n' >&2
-        else
-            printf 'WARNING: catalogue was not published by this run; skipping the bootstrap probe\n' >&2
-            rm -rf "$STAGE"
-            stage_ready=0
-        fi
-    fi
-fi
-if [[ $stage_ready -eq 1 ]]; then
     # Probe to a staging path first: a pre-existing state file must not be
     # replaced by a writer, and a failed sweep must not destroy it.
     PROBE_STATE="$STAGE/free_models_junior.json"

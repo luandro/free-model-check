@@ -1,9 +1,0 @@
-{
-  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Final pass on 'git diff main' in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nYour last remaining RISK: any hard-link failure was reported as an existing destination, so a filesystem without hard links would silently discard staged output and still complete. publish_no_clobber now returns 2 for that case and both callers die with a clear message; rc=1 still means the destination exists.\n\nVerified: rc=2 on a read-only destination, and install -> wrapper -> update -> uninstall all exit 0 leaving only refresh.lock.\n\nGive a final verdict. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
-  "perAgentQuery": {},
-  "graftReads": 0,
-  "sourceReads": 0,
-  "savedTokens": 0,
-  "injectedPointers": [],
-  "nudges": 0
-}

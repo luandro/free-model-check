@@ -1065,7 +1065,7 @@ def probe_routes(
     return routes, probed
 
 
-def best_route(routes: list[dict[str, Any]]) -> dict[str, str] | None:
+def best_route(routes: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Lowest-latency available route; null latencies sort last."""
     candidates = [route for route in routes if route.get("available") is True]
     if not candidates:

@@ -1,9 +1,0 @@
-{
-  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Seventh pass on 'git diff main' in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nSince your last review:\n1. Uninstall requires a manifest row for a generated file; no row means it was never ours and is left alone.\n2. The wrapper overwrites the catalogue or the state only when the recorded sha256 still matches the file on disk; otherwise it warns and keeps the user's file.\n3. CATALOGUE_PUBLISHED is set only when free_models.json itself is published, not a sibling CSV.\n\nVerified locally: (a) pre-existing free_models.json survives install+uninstall, (b) full install -> wrapper -> update -> uninstall leaves only refresh.lock.\n\nReport anything still blocking. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
-  "perAgentQuery": {},
-  "graftReads": 0,
-  "sourceReads": 0,
-  "savedTokens": 0,
-  "injectedPointers": [],
-  "nudges": 0
-}

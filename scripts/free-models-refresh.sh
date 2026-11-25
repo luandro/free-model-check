@@ -12,11 +12,12 @@
 #
 # Lock semantics
 # --------------
-# The script takes an exclusive flock on $STATE_DIR/refresh.lock (5s wait) before
+# The script takes an exclusive flock on $STATE_DIR/refresh.lock (900s wait) before
 # doing anything else. If the lock cannot be acquired it gives up with exit 75 so
 # a concurrent timer tick never double-runs the filter or the probe. The wait is
-# short on purpose: flock returns success after the wait elapses, so a long
-# timeout would queue concurrent ticks instead of skipping them.
+# long on purpose: a probe sweep can hold the lock for up to 600 s, and the
+# refresh is the run that must not be starved, or the catalogue ages past the
+# probe's 6-hour gate.
 #
 # The lock is taken BEFORE credentials are loaded, and the catalogue is only ever
 # written inside $STATE_DIR (staging lives there too, so the final `mv` never
@@ -65,7 +66,7 @@ done
 
 if [ "$DRY_RUN" -eq 1 ]; then
     echo "mkdir -p \"$STATE_DIR\""
-    echo "exec 9>\"$LOCK_FILE\"; flock -w 5 9"
+    echo "exec 9>\"$LOCK_FILE\"; flock -w 900 9"
     if [ "$SKIP_FILTER" -eq 0 ]; then
         echo "timeout 300 python3 \"$STATE_DIR/free_model_filter.py\" --require-agent-ready --output-prefix \"$STATE_DIR/staging-\$\$/free_models\""
         echo "# validate staged catalogue, then mv -f each free_models* into \"$STATE_DIR\""
@@ -78,7 +79,7 @@ fi
 mkdir -p "$STATE_DIR"
 
 # 2. Acquire the exclusive lock before loading credentials.
-# A short wait only: flock returns 0 once the wait elapses, so a long timeout
+# X timeout
 # would queue concurrent ticks instead of skipping them.
 # The system flock is preferred: some homebrew builds return 0 without ever
 # taking the lock, which would silently let two sweeps run at once.
@@ -133,7 +134,7 @@ if [ -f "$ENV_FILE" ]; then
     # shell identifier is ignored rather than exported.
     while IFS='=' read -r key value; do
         case "$key" in
-            ''|'#'*|'#'*) continue ;;
+            ''|'#'*) continue ;;
         esac
         key="${key#export }"
         key="${key//[[:space:]]/}"
@@ -210,16 +211,17 @@ PY
                     continue
                 fi
             fi
-            # Hash the staged bytes, then publish with a hard link: ln fails
-            # atomically if the destination appeared since the check above, so a
-            # file created in that window is never clobbered and then claimed.
+            # Hash the staged bytes, then publish. -f is needed because the
+            # destination normally exists and is ours: the ownership and
+            # unchanged-content checks above are what make replacing it safe,
+            # and ln -T -f replaces atomically rather than truncating in place.
             staged_hash="$(sha256sum "$f" | cut -d' ' -f1)"
             set +e
-            ln -T "$f" "$dest" 2>/dev/null
+            ln -T -f "$f" "$dest" 2>/dev/null
             publish_rc=$?
             set -e
             if [ "$publish_rc" -ne 0 ]; then
-                echo "warning: $dest exists or cannot be linked; not overwriting" >&2
+                echo "warning: cannot publish $dest; keeping the previous file" >&2
                 rm -f "$f"
                 continue
             fi
@@ -260,6 +262,9 @@ if [ ! -f "$PROBE" ]; then
     echo "probe script not found at $PROBE" >&2
     exit 77
 fi
+# Clear a temp file left by a run that was killed mid-sweep; it is never
+# recorded, so nothing else would remove it.
+rm -f "$STATE_DIR"/free_models_junior.json.tmp.* 2>/dev/null || true
 
 prc=0
 # Never probe a catalogue this installer does not own: without a manifest row it
@@ -303,12 +308,14 @@ if [ -e "$STATE_FILE" ] || [ -L "$STATE_FILE" ]; then
     fi
 fi
 state_hash="$(sha256sum "$PROBE_TMP" | cut -d' ' -f1)"
+# -f: the destination is normally our own state file, verified above. Without it
+# ln refuses and the probe output would never be published.
 set +e
-ln -T "$PROBE_TMP" "$STATE_FILE" 2>/dev/null
+ln -T -f "$PROBE_TMP" "$STATE_FILE" 2>/dev/null
 publish_rc=$?
 set -e
 if [ "$publish_rc" -ne 0 ]; then
-    echo "warning: $STATE_FILE appeared during the sweep; not overwriting" >&2
+    echo "warning: cannot publish $STATE_FILE; keeping the previous state" >&2
     rm -f "$PROBE_TMP"
     exit 0
 fi

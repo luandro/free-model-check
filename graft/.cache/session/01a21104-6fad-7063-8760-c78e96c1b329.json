@@ -1,9 +1,0 @@
-{
-  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Twelfth pass on 'git diff main' in /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior.\n\nYour last blocker: a dangling symlink at the state path passes -e as absent and mv replaces it. Both state checks and the catalogue check now test -e OR -L, in the wrapper and in bootstrap. The hash recorded after publication is computed from the file just written, so a swap between check and rename cannot be claimed.\n\nVerified: install -> wrapper -> update -> uninstall all exit 0 leaving only refresh.lock; a dangling symlink at the state path is detected.\n\nReport anything still blocking. Output BLOCKER/RISK/NIT/OK with file:line. Be concise.",
-  "perAgentQuery": {},
-  "graftReads": 0,
-  "sourceReads": 0,
-  "savedTokens": 0,
-  "injectedPointers": [],
-  "nudges": 0
-}
