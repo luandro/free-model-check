@@ -98,9 +98,13 @@ if [ -z "$FLOCK_BIN" ]; then
     exit 77
 fi
 
-# 3. Lock. Never truncate or follow a pre-existing path we do not own.
-# Creation uses noclobber (O_CREAT|O_EXCL) so an existing file, a dangling
-# symlink, or a raced creation fails loudly. The fd is append-only.
+# 3. Lock. Never truncate or follow a path we do not own. Creation uses
+# noclobber (O_CREAT|O_EXCL) so an existing file, a dangling symlink, or a
+# raced creation fails loudly. The fd is then opened READ-ONLY (9<): O_RDONLY
+# never truncates and never creates the target of a dangling symlink, and flock
+# works on a read-only fd. After the open we re-verify the path is still a
+# regular file and that fd 9 and the path name the same device:inode, closing
+# the window where a symlink or different file is swapped in before the open.
 if [ -L "$LOCK_FILE" ]; then
     echo "lock file $LOCK_FILE is a symlink; refusing to use it" >&2
     exit 1
@@ -112,7 +116,16 @@ elif [ ! -f "$LOCK_FILE" ]; then
     echo "lock file $LOCK_FILE is not a regular file" >&2
     exit 1
 fi
-exec 9>>"$LOCK_FILE"
+exec 9<"$LOCK_FILE"
+if [ -L "$LOCK_FILE" ] || [ ! -f "$LOCK_FILE" ]; then
+    echo "lock file $LOCK_FILE changed while opening; refusing to use it" >&2
+    exit 1
+fi
+if [ "$(stat -Lc '%d:%i' /proc/self/fd/9 2>/dev/null)" != \
+     "$(stat -c '%d:%i' "$LOCK_FILE" 2>/dev/null)" ]; then
+    echo "lock file $LOCK_FILE was swapped while opening; refusing to use it" >&2
+    exit 1
+fi
 # The wait must comfortably exceed a probe sweep (up to 600 s). Both timers can
 # fire on the same minute, and the refresh is the one that must not be starved:
 # skipping it lets the catalogue age past the probe's 6-hour gate.

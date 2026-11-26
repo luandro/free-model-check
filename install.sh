@@ -48,7 +48,27 @@ do_uninstall() {
     fi
     [[ -n "$flock_bin" ]] || die "flock not found" 77
 
-    exec 9>>"$STATE_DIR/refresh.lock"
+    # Open the lock the same hardened way as install: create with noclobber if
+    # absent, then open READ-ONLY (never truncates, never follows a dangling
+    # symlink to create its target) and re-verify the fd and path still name the
+    # same regular file before taking the lock.
+    if [ -L "$STATE_DIR/refresh.lock" ]; then
+        die "$STATE_DIR/refresh.lock is a symlink; refusing to use it" 1
+    fi
+    if [ ! -e "$STATE_DIR/refresh.lock" ]; then
+        ( set -C; umask 077; : >"$STATE_DIR/refresh.lock" ) 2>/dev/null \
+            || die "could not create $STATE_DIR/refresh.lock" 1
+    elif [ ! -f "$STATE_DIR/refresh.lock" ]; then
+        die "$STATE_DIR/refresh.lock exists and is not a regular file" 1
+    fi
+    exec 9<"$STATE_DIR/refresh.lock"
+    if [ -L "$STATE_DIR/refresh.lock" ] || [ ! -f "$STATE_DIR/refresh.lock" ]; then
+        die "$STATE_DIR/refresh.lock changed while opening; refusing to use it" 1
+    fi
+    if [ "$(stat -Lc '%d:%i' /proc/self/fd/9 2>/dev/null)" != \
+         "$(stat -c '%d:%i' "$STATE_DIR/refresh.lock" 2>/dev/null)" ]; then
+        die "$STATE_DIR/refresh.lock was swapped while opening; refusing to use it" 1
+    fi
     "$flock_bin" -w 120 9 || die "could not acquire lock after 120s" 75
 
     if [[ ! -f "$MANIFEST" ]]; then
@@ -461,10 +481,14 @@ done < "$REPO_ROOT/.env"
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR" 2>/dev/null || true
 
-# Step 3: Lock. Never truncate or follow a pre-existing path we do not own.
-# Creation uses noclobber (O_CREAT|O_EXCL), so an existing file, a dangling
-# symlink, or a raced creation fails loudly instead of being truncated or
-# followed. The fd is then opened append-only, which never truncates.
+# Step 3: Lock. Never truncate or follow a path we do not own. Creation uses
+# noclobber (O_CREAT|O_EXCL), so an existing file, a dangling symlink, or a
+# raced creation fails loudly instead of being truncated or followed. The fd is
+# then opened READ-ONLY (9<): O_RDONLY never truncates and never creates the
+# target of a dangling symlink, and flock works on a read-only fd. After the
+# open we re-verify that the path is still a regular file and that fd 9 and the
+# path name the same device:inode. That closes the window where a symlink (or a
+# different file) is swapped in between the checks above and the open.
 if [[ -L "$STATE_DIR/refresh.lock" ]]; then
     die "$STATE_DIR/refresh.lock is a symlink; refusing to use it" 1
 fi
@@ -475,7 +499,14 @@ if [[ ! -e "$STATE_DIR/refresh.lock" ]]; then
 elif [[ ! -f "$STATE_DIR/refresh.lock" ]]; then
     die "$STATE_DIR/refresh.lock exists and is not a regular file" 1
 fi
-exec 9>>"$STATE_DIR/refresh.lock"
+exec 9<"$STATE_DIR/refresh.lock"
+if [[ -L "$STATE_DIR/refresh.lock" || ! -f "$STATE_DIR/refresh.lock" ]]; then
+    die "$STATE_DIR/refresh.lock changed while opening; refusing to use it" 1
+fi
+if [[ "$(stat -Lc '%d:%i' /proc/self/fd/9 2>/dev/null)" != \
+      "$(stat -c '%d:%i' "$STATE_DIR/refresh.lock" 2>/dev/null)" ]]; then
+    die "$STATE_DIR/refresh.lock was swapped while opening; refusing to use it" 1
+fi
 # Prefer the system flock: some homebrew builds return 0 without taking the lock.
 FLOCK_BIN=""
 for candidate in /usr/bin/flock /bin/flock; do
