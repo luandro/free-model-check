@@ -52,9 +52,13 @@ acquire_lock() {
         # The re-exec'd pass must prove the handoff: fd 9 has to be open and
         # name the exact inode at the lock path. A stray _FREE_MODELS_LOCKED=1
         # inherited from the environment (with fd 9 closed or pointing
-        # elsewhere) is refused rather than silently skipping the lock.
-        if [[ "$(stat -Lc '%d:%i' /proc/self/fd/9 2>/dev/null)" != \
-              "$(stat -c '%d:%i' "$lock" 2>/dev/null)" ]]; then
+        # elsewhere) is refused rather than silently skipping the lock. Both
+        # stats must succeed: if either is empty (fd 9 closed, path absent) the
+        # comparison would otherwise be empty==empty and fail open.
+        local fd_id path_id
+        fd_id="$(stat -Lc '%d:%i' /proc/self/fd/9 2>/dev/null || true)"
+        path_id="$(stat -c '%d:%i' "$lock" 2>/dev/null || true)"
+        if [[ -z "$fd_id" || -z "$path_id" || "$fd_id" != "$path_id" ]]; then
             die "lock handoff invalid: fd 9 does not match $lock" 1
         fi
         return 0

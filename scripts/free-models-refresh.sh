@@ -103,9 +103,12 @@ if [ "${_FREE_MODELS_LOCKED:-0}" != "1" ]; then
 fi
 # The re-exec'd pass must prove the handoff: fd 9 has to be open and name the
 # exact inode at the lock path. A stray _FREE_MODELS_LOCKED=1 inherited from the
-# environment (fd 9 closed or pointing elsewhere) is refused, not skipped.
-if [ "$(stat -Lc '%d:%i' /proc/self/fd/9 2>/dev/null)" != \
-     "$(stat -c '%d:%i' "$LOCK_FILE" 2>/dev/null)" ]; then
+# environment (fd 9 closed or pointing elsewhere) is refused, not skipped. Both
+# stats must succeed: if either is empty (fd 9 closed, path absent) the strings
+# would compare equal and fail open.
+fd_id="$(stat -Lc '%d:%i' /proc/self/fd/9 2>/dev/null || true)"
+path_id="$(stat -c '%d:%i' "$LOCK_FILE" 2>/dev/null || true)"
+if [ -z "$fd_id" ] || [ -z "$path_id" ] || [ "$fd_id" != "$path_id" ]; then
     echo "lock handoff invalid: fd 9 does not match $LOCK_FILE" >&2
     exit 1
 fi
