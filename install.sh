@@ -228,7 +228,9 @@ do_uninstall() {
                 skipped_files+=("$path")
             fi
         else
-            skipped_files+=("$path")
+            # Already gone: nothing to remove. Not a "skip" -- counting a
+            # missing file as skipped would needlessly retain the manifest.
+            :
         fi
         i=$((i + 1))
     done
@@ -263,7 +265,12 @@ do_uninstall() {
                         $0 == end   { skipping=0; next }
                         skipping    { next }
                         { print }
-                    ' "$agents_md_path" >"$tmp_agents" && mv "$tmp_agents" "$agents_md_path"
+                    ' "$agents_md_path" >"$tmp_agents"
+                    # Preserve the original mode across the atomic mv (mktemp is 0600).
+                    local agents_mode
+                    agents_mode="$(stat -c '%a' "$agents_md_path" 2>/dev/null || true)"
+                    mv "$tmp_agents" "$agents_md_path"
+                    [[ -n "$agents_mode" ]] && chmod "$agents_mode" "$agents_md_path" 2>/dev/null || true
                     agents_md_removed=1
                 else
                     printf 'WARNING: AGENTS.md block was modified; leaving it alone\n' >&2
@@ -350,9 +357,12 @@ manifest_add() {
     # Drop an existing row for the same path first, so --update replaces rather
     # than duplicates. The match is anchored to the whole first field: an
     # unanchored substring would let a short key (the [complete] row's "1")
-    # delete unrelated rows.
+    # delete unrelated rows. A row that is just the key (no trailing space, as
+    # the [complete] "1" row is) is matched whole-line so it dedups against
+    # itself instead of accumulating duplicates.
     local key="${line%% *}"
     awk -v key="$key" '
+        $0 == key { next }
         index($0, key " ") == 1 { next }
         { print }
     ' "$tmp" >"$tmp.dedup" 2>/dev/null || true
@@ -400,9 +410,10 @@ parse_interval() {
         (( value >= min && value <= max )) || die "$name interval ${value}m outside range ${min}m..${max}m"
         (( 60 % value == 0 )) || die "$name interval ${value}m must divide 60"
         # 60m is the one-hour case; *:0/60 is rejected by systemd, so spell it
-        # as an hourly expression instead.
+        # as an hourly expression instead. The minute field must be a single
+        # 00 (not *, which would fire every minute).
         if [[ "$value" == "60" ]]; then
-            expr="*-*-* *:*:00"
+            expr="*-*-* *:00:00"
         else
             expr="*:0/${value}"
         fi
@@ -514,6 +525,8 @@ preflight_paths=(
     "$STATE_DIR/free-models-probe.py"
     "$STATE_DIR/free-models-refresh.sh"
     "$STATE_DIR/free-models-lock.py"
+    "$STATE_DIR/free_model_filter.py"
+    "$STATE_DIR/skills/free-models-junior/SKILL.md"
     "$HOME/.config/systemd/user/free-models-refresh.service"
     "$HOME/.config/systemd/user/free-models-refresh.timer"
     "$HOME/.config/systemd/user/free-models-probe.service"
@@ -580,6 +593,8 @@ fi
 
 # Step 5: Credentials
 CRED_FILE="$STATE_DIR/free-models.env"
+# Never write the API key through a symlink swapped in at the credential path.
+[[ -L "$CRED_FILE" ]] && die "$CRED_FILE is a symlink; refusing to write credentials through it" 1
 ( umask 077; : >"$CRED_FILE" )   # create 0600 from the first write
 cat >"$CRED_FILE" <<EOF
 AA_API_KEY=$AA_API_KEY
@@ -627,9 +642,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 Environment=STATE_DIR=$STATE_DIR
-Environment=REPO_DIR=$REPO_ROOT
 ExecStart=$STATE_DIR/free-models-refresh.sh
-WorkingDirectory=$REPO_ROOT
+WorkingDirectory=$STATE_DIR
 # Exit 75 means another run held the lock: routine, not a failure.
 SuccessExitStatus=75
 EOF
@@ -658,9 +672,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 Environment=STATE_DIR=$STATE_DIR
-Environment=REPO_DIR=$REPO_ROOT
 ExecStart=$STATE_DIR/free-models-refresh.sh --skip-filter
-WorkingDirectory=$REPO_ROOT
+WorkingDirectory=$STATE_DIR
 SuccessExitStatus=75
 EOF
 manifest_add "[units]" "free-models-probe.service sha256:$(sha_of "$UNIT_DIR/free-models-probe.service")"
@@ -679,18 +692,19 @@ WantedBy=timers.target
 EOF
 manifest_add "[units]" "free-models-probe.timer sha256:$(sha_of "$UNIT_DIR/free-models-probe.timer")"
 
-# --update: clear [complete] before step 8 if the manifest exists and has it
-if [[ $DO_UPDATE -eq 1 ]]; then
-    if [[ -f "$MANIFEST" ]] && grep -qxF '[complete]' "$MANIFEST"; then
-        # Rewrite the manifest without the [complete] section.
-        tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
-        awk '
-            BEGIN { skip=0 }
-            /^\[complete\]/ { skip=1; next }
-            /^\[/ && skip { skip=0 }
-            !skip { print }
-        ' "$MANIFEST" >"$tmp_manifest" && mv "$tmp_manifest" "$MANIFEST"
-    fi
+# Clear [complete] before step 8 whenever the manifest exists and has it: a
+# re-install (plain or --update) must not inherit a stale completion marker that
+# would make the timers treat a partial install as complete. manifest_add would
+# also dedup the row now, but clearing it here keeps the window clean.
+if [[ -f "$MANIFEST" ]] && grep -qxF '[complete]' "$MANIFEST"; then
+    # Rewrite the manifest without the [complete] section.
+    tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
+    awk '
+        BEGIN { skip=0 }
+        /^\[complete\]/ { skip=1; next }
+        /^\[/ && skip { skip=0 }
+        !skip { print }
+    ' "$MANIFEST" >"$tmp_manifest" && mv "$tmp_manifest" "$MANIFEST"
 fi
 
 # Step 8: Skill symlink
@@ -700,8 +714,12 @@ SKILL_LINK="$HOME/.agents/skills/free-models-junior"
 # checkout is a worktree that later gets pruned.
 SKILL_TARGET="$STATE_DIR/skills/free-models-junior"
 if [[ -L "$SKILL_LINK" ]]; then
+    # Resolve both sides: if any component of STATE_DIR/HOME is itself a
+    # symlink, readlink -f canonicalises the link target but not the literal
+    # SKILL_TARGET, so an owned, correctly-pointed link would read as mismatched.
     current_target="$(readlink -f "$SKILL_LINK")"
-    if [[ "$current_target" != "$SKILL_TARGET" ]]; then
+    want_target="$(readlink -f "$SKILL_TARGET")"
+    if [[ "$current_target" != "$want_target" ]]; then
         # An owned link (recorded in the manifest) pointing somewhere else is
         # re-pointed rather than fatal: the installer moved the target, and
         # --update is the documented repair. An unowned link is never touched,
@@ -772,7 +790,12 @@ if [[ $HARNESS_INTEGRATION -eq 1 ]]; then
                     $0 == end   { skipping=0; print; next }
                     skipping    { next }
                     { print }
-                ' "$AGENTS_MD_PATH" >"$tmp_agents" && mv "$tmp_agents" "$AGENTS_MD_PATH"
+                ' "$AGENTS_MD_PATH" >"$tmp_agents"
+                # mktemp creates 0600; restore the original mode so the shared
+                # instructions file keeps its permissions across the atomic mv.
+                agents_mode="$(stat -c '%a' "$AGENTS_MD_PATH" 2>/dev/null || true)"
+                mv "$tmp_agents" "$AGENTS_MD_PATH"
+                [[ -n "$agents_mode" ]] && chmod "$agents_mode" "$AGENTS_MD_PATH" 2>/dev/null || true
                 agents_block_owned=1
             fi
         else
@@ -846,6 +869,9 @@ mkdir -p "$STAGE"
 # Bootstrap skips the probe when the catalogue was not published by THIS run. A
 # manifest entry from an earlier run is not evidence, so track publication here.
 CATALOGUE_PUBLISHED=0
+# The exact digest published for free_models.json this run (empty if not
+# published), so the bootstrap probe pins to the published bytes.
+cat_published_hash=""
 # Publish a staged file to $STATE_DIR without ever clobbering an existing path.
 # Uses a hard link, which fails atomically when the destination exists, so there
 # is no check-then-rename window and no fallback that could race. Returns 0 when
@@ -865,10 +891,14 @@ publish_no_clobber() {
     # destination normally exists. The helper re-verifies ownership itself rather
     # than trusting the caller: the recorded hash must match a plain file.
     if [ "$replace" = "1" ] && [ -e "$dest" ] && [ ! -L "$dest" ]; then
-        local rec cur
-        rec="$(grep -F "$dest " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
-        cur="$(sha_of "$dest" 2>/dev/null)" || true
-        if [ -n "$rec" ] && [ "$rec" = "$cur" ]; then
+        # Ownership is proven by an anchored [files] row for this exact path,
+        # not by hash equality: after a crash between publish and record the
+        # bytes may differ from the recorded digest, and --update is the
+        # explicit, user-driven recovery path (the caller only passes replace=1
+        # on --update for a path that already has a row).
+        local rec
+        rec="$(awk -v p="$dest sha256:" 'index($0, p) == 1 { sub(/.*sha256:/, ""); print; exit }' "$MANIFEST" 2>/dev/null)" || true
+        if [ -n "$rec" ]; then
             if ln -T -f "$src" "$dest" 2>/dev/null; then
                 rm -f "$src"
                 return 0
@@ -897,16 +927,20 @@ publish_catalogue() {
         # describes exactly what we are about to move.
         local src_hash
         src_hash="$(sha_of "$src")"
-        # On --update an owned, unchanged destination is replaced; otherwise the
+        # On --update an owned destination is replaced; otherwise the
         # non-clobbering path is used so a foreign file is never touched.
         local replace=0
         if [[ $DO_UPDATE -eq 1 && -e "$dest" && ! -L "$dest" ]]; then
             # A symlink is never replaced, and the hash is only trusted for a
-            # plain file: sha256sum would otherwise follow the link.
-            local rec cur
+            # plain file: sha256sum would otherwise follow the link. Adopt on
+            # --update whenever the path is an owned artifact (has a [files]
+            # row), even if its bytes diverged from the recorded hash (e.g. a
+            # crash between publish and record left new bytes under an old
+            # hash). --update is the explicit, user-driven recovery path; a
+            # foreign file with no row is still never overwritten.
+            local rec
             rec="$(grep -F "$dest " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
-            cur="$(sha_of "$dest" 2>/dev/null)" || true
-            [[ -n "$rec" && "$rec" == "$cur" ]] && replace=1
+            [[ -n "$rec" ]] && replace=1
         fi
         # errexit is disabled around the call so a non-zero rc reaches the check.
         set +e
@@ -925,9 +959,12 @@ publish_catalogue() {
         fi
         manifest_add "[files]" "$dest sha256:$src_hash"
         # Only the catalogue itself counts: publishing a sibling CSV must not
-        # make bootstrap probe a pre-existing free_models.json.
+        # make bootstrap probe a pre-existing free_models.json. Record the exact
+        # digest we published so the bootstrap probe can pin to it without
+        # rehashing the destination (which a concurrent replacement could change).
         if [[ "$(basename "$dest")" == "free_models.json" ]]; then
             CATALOGUE_PUBLISHED=1
+            cat_published_hash="$src_hash"
         fi
     done
 }
@@ -940,11 +977,17 @@ if [[ $stage_ready -eq 0 ]]; then
     # On --update with an owned, unchanged catalogue there is nothing to rebuild:
     # the timer already refreshed it, so re-running the filter would spend 300 s
     # and an AA request only to discard every byte at publish time.
-    cat_recorded="$(grep -F "$STATE_DIR/free_models.json " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
+    # Anchored lookup (a row that starts with "<path> sha256:"), so a row for a
+    # different path merely ending in the catalogue path cannot authorize it.
+    cat_recorded="$(awk -v p="$STATE_DIR/free_models.json sha256:" 'index($0, p) == 1 { sub(/.*sha256:/, ""); print; exit }' "$MANIFEST" 2>/dev/null)" || true
     cat_current="$(sha256sum "$STATE_DIR/free_models.json" 2>/dev/null | cut -d' ' -f1)" || true
-    if [[ $DO_UPDATE -eq 1 && -n "$cat_recorded" && "$cat_recorded" == "$cat_current" ]]; then
+    # Require a plain file (not a symlink whose target happens to match) and a
+    # matching recorded digest before trusting the existing catalogue.
+    if [[ $DO_UPDATE -eq 1 && -n "$cat_recorded" && "$cat_recorded" == "$cat_current" \
+          && -f "$STATE_DIR/free_models.json" && ! -L "$STATE_DIR/free_models.json" ]]; then
         printf 'NOTE: catalogue already owned and unchanged; skipping the filter\n' >&2
         CATALOGUE_PUBLISHED=1
+        cat_published_hash="$cat_recorded"
         stage_ready=1
     fi
 fi
@@ -973,19 +1016,25 @@ fi
 state_existed=0
 # -L as well as -e: a dangling symlink is still a path we must not replace.
 if [[ -e "$STATE_DIR/free_models_junior.json" || -L "$STATE_DIR/free_models_junior.json" ]]; then state_existed=1; fi
-if [[ ! -f "$STATE_DIR/free_models.json" ]]; then
-    # No usable catalogue (for example every publish was skipped): leave the
-    # existing state alone rather than failing the whole install.
-    printf 'WARNING: no catalogue published; skipping the bootstrap probe\n' >&2
+if [[ $CATALOGUE_PUBLISHED -ne 1 ]]; then
+    # No usable catalogue was published by THIS run (for example every publish
+    # was skipped because a foreign file was in the way): leave the existing
+    # state alone rather than probing a catalogue this install does not own.
+    printf 'WARNING: no catalogue published by this run; skipping the bootstrap probe\n' >&2
     rm -rf "$STAGE"
     stage_ready=0
 else
     # Probe to a staging path first: a pre-existing state file must not be
-    # replaced by a writer, and a failed sweep must not destroy it.
+    # replaced by a writer, and a failed sweep must not destroy it. Pin the
+    # probe to the exact published bytes with --expect-sha256 (the digest we
+    # published this run), as the scheduled refresh does -- never a rehash of
+    # the destination, which a concurrent replacement could have changed.
+    cat_hash="$cat_published_hash"
     PROBE_STATE="$STAGE/free_models_junior.json"
     probe_rc=0
     timeout 700 python3 "$STATE_DIR/free-models-probe.py" \
         --catalogue "$STATE_DIR/free_models.json" \
+        --expect-sha256 "$cat_hash" \
         --state "$PROBE_STATE" \
         --env-file "$STATE_DIR/free-models.env" || probe_rc=$?
     if [[ $probe_rc -ne 0 ]]; then

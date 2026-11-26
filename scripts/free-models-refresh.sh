@@ -30,11 +30,6 @@ set -euo pipefail
 ORIG_ARGS=("$@")
 
 STATE_DIR="${STATE_DIR:-$HOME/.software-factory}"
-# REPO_DIR is only the units' WorkingDirectory. The filter and probe are
-# installed into STATE_DIR, so nothing here depends on the checkout surviving:
-# installing from a git worktree must not leave the timers pointing at a path
-# that disappears when the worktree is pruned.
-REPO_DIR="${REPO_DIR:-$STATE_DIR}"
 LOCK_FILE="$STATE_DIR/refresh.lock"
 ENV_FILE="$STATE_DIR/free-models.env"
 MANIFEST="$STATE_DIR/installed-manifest"
@@ -167,11 +162,32 @@ fi
 # 6. Filter step (unless --skip-filter).
 if [ "$SKIP_FILTER" -eq 0 ]; then
     STAGE="$STATE_DIR/staging-$$"
+    # Mirror the install-side staging check: never follow a symlink or reuse a
+    # non-empty directory left by a killed run (the EXIT trap does not fire on
+    # SIGKILL, and PID reuse could otherwise feed stale files into the publish).
+    if [ -L "$STAGE" ]; then
+        echo "staging path $STAGE is a symlink; refusing to use it" >&2
+        exit 1
+    fi
+    if [ -e "$STAGE" ] && [ ! -d "$STAGE" ]; then
+        echo "staging path $STAGE exists and is not a directory" >&2
+        exit 1
+    fi
+    if [ -d "$STAGE" ]; then
+        if ! stage_entries="$(ls -A "$STAGE" 2>/dev/null)"; then
+            echo "staging dir $STAGE is not readable; refusing to use it" >&2
+            exit 1
+        fi
+        if [ -n "$stage_entries" ]; then
+            echo "staging dir $STAGE is not empty; refusing to use it" >&2
+            exit 1
+        fi
+    fi
     mkdir -p "$STAGE"
     trap 'rm -rf "$STAGE"' EXIT
 
     rc=0
-    timeout 300 python3 "$REPO_DIR/free_model_filter.py" --require-agent-ready --output-prefix "$STAGE/free_models" || rc=$?
+    timeout 300 python3 "$STATE_DIR/free_model_filter.py" --require-agent-ready --output-prefix "$STAGE/free_models" || rc=$?
     if [ "$rc" -ne 0 ]; then
         echo "catalogue refresh failed; keeping previous catalogue" >&2
         exit 78
@@ -252,7 +268,10 @@ PY
             # section happens to be last.
             dest_hash="$staged_hash"
             tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
-            if grep -qF "$dest " "$MANIFEST" 2>/dev/null; then
+            # Anchored existence test, identical to the replacement below: an
+            # unanchored grep could report a row present (substring match) that
+            # the anchored awk then fails to replace, silently diverging.
+            if awk -v old="$dest sha256:" 'index($0, old) == 1 { found=1 } END { exit(found ? 0 : 1) }' "$MANIFEST" 2>/dev/null; then
                 awk -v old="$dest sha256:" -v new="$dest sha256:$dest_hash" '
                     index($0, old) == 1 { print new; next }
                     { print }

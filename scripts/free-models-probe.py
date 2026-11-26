@@ -244,10 +244,17 @@ def read_env_file(path: Path) -> dict[str, str]:
 
 
 def load_credentials(env_path: Path, repo_env: Path) -> dict[str, str]:
-    """Keys from the dedicated env file, falling back to the repo .env."""
+    """Keys from the dedicated env file, falling back to the repo .env.
+
+    The repo fallback is only used when this script is actually running from a
+    checkout (a ``.git`` directory at the repo root). An installed copy lives in
+    the state dir with no repo, so its computed "repo root" would be ``$HOME``
+    and the fallback would read ``~/.env`` -- outside the 0700 state dir and
+    possibly world-readable. In that case only the dedicated env file is used.
+    """
     if env_path.is_file():
         return read_env_file(env_path)
-    if repo_env.is_file():
+    if (repo_env.parent / ".git").exists() and repo_env.is_file():
         return read_env_file(repo_env)
     return {}
 
@@ -1242,7 +1249,7 @@ def run_sweep(argv: list[str]) -> int:
         "generated_unix": int(time.time()),
         "catalogue_generated_unix": int(catalogue_unix),
         "catalogue_generation_id": "sha256:" + hashlib.sha256(raw_bytes).hexdigest(),
-        "source_repo": str(source_repo_root()),
+        "source_repo": str(source_repo_root()) if (source_repo_root() / ".git").exists() else "",
         "sweep_budget_seconds": float(args.sweep_budget),
         "models": models,
     }
