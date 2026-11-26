@@ -1,9 +1,0 @@
-{
-  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Verify your last blocker is fixed in 'git diff main' at /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior (head 462c367).\n\nYou said the -f flag could still overwrite an unowned file that appears after the check. Claimed fix: publish_no_clobber now re-verifies ownership itself (recorded hash vs a plain file) before using -f, uses a plain ln only when the destination is absent, and refresh.sh does the same absent-vs-present split so each publish is one atomic syscall.\n\nVerified locally: owned+replace=1 -> rc=0 and dest updated; unowned+replace=1 -> rc=1 and dest preserved; first install onto existing -> rc=1 preserved; generated_unix advances across a wrapper run; uninstall leaves only refresh.lock.\n\nOutput BLOCKER/RISK/NIT/OK with file:line. If no blockers remain, say so explicitly. Be concise.",
-  "perAgentQuery": {},
-  "graftReads": 0,
-  "sourceReads": 0,
-  "savedTokens": 0,
-  "injectedPointers": [],
-  "nudges": 0
-}

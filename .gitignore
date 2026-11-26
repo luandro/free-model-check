@@ -9,6 +9,9 @@ __pycache__/
 *.py[cod]
 .venv/
 
+# Tooling scratch (Codex companion session cache) — never part of the change
+graft/
+
 # Generated reports (kept local, never committed)
 free_models*.json
 free_models*.csv

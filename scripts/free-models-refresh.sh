@@ -98,14 +98,19 @@ if [ -z "$FLOCK_BIN" ]; then
     exit 77
 fi
 
-# 3. Lock. Never truncate a pre-existing file we do not own: O_TRUNC would
-# destroy it before the lock is taken. Create the lock file only when absent,
-# and record it so ownership is explicit.
-if [[ -e "$LOCK_FILE" && ! -f "$LOCK_FILE" ]]; then
-    die "$LOCK_FILE exists and is not a regular file" 1
+# 3. Lock. Never truncate or follow a pre-existing path we do not own.
+# Creation uses noclobber (O_CREAT|O_EXCL) so an existing file, a dangling
+# symlink, or a raced creation fails loudly. The fd is append-only.
+if [ -L "$LOCK_FILE" ]; then
+    echo "lock file $LOCK_FILE is a symlink; refusing to use it" >&2
+    exit 1
 fi
-if [[ ! -e "$LOCK_FILE" ]]; then
-    ( umask 077; : >"$LOCK_FILE" )
+if [ ! -e "$LOCK_FILE" ]; then
+    ( set -C; umask 077; : >"$LOCK_FILE" ) 2>/dev/null \
+        || { echo "could not create $LOCK_FILE" >&2; exit 1; }
+elif [ ! -f "$LOCK_FILE" ]; then
+    echo "lock file $LOCK_FILE is not a regular file" >&2
+    exit 1
 fi
 exec 9>>"$LOCK_FILE"
 # The wait must comfortably exceed a probe sweep (up to 600 s). Both timers can
@@ -285,12 +290,13 @@ if [ ! -f "$PROBE" ]; then
     exit 77
 fi
 # Clear a temp file left by a run that was killed mid-sweep. Only our own
-# pid-stamped pattern is touched, and only when it is a plain file: a glob
-# delete would destroy an unrelated file that happens to match.
+# pid-stamped name is touched: a plain non-symlink file whose suffix is exactly
+# one all-digit segment. A glob delete would destroy an unrelated file, and
+# checking only the last segment would still catch "tmp.keep.123".
 for stale in "$STATE_DIR"/free_models_junior.json.tmp.*; do
     if [[ -f "$stale" && ! -L "$stale" ]]; then
-        case "${stale##*.}" in
-            ''|*[!0-9]*) continue ;;
+        case "${stale##*/free_models_junior.json.tmp.}" in
+            *[!0-9]*|'') continue ;;
         esac
         rm -f "$stale"
     fi

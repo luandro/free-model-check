@@ -461,15 +461,19 @@ done < "$REPO_ROOT/.env"
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR" 2>/dev/null || true
 
-# Step 3: Lock. Open with >> (append) rather than >: O_TRUNC would destroy a
-# pre-existing file before the lock is taken. Append never truncates, and flock
-# only needs a stable inode.
-if [[ -e "$STATE_DIR/refresh.lock" && ! -f "$STATE_DIR/refresh.lock" ]]; then
-    die "$STATE_DIR/refresh.lock exists and is not a regular file" 1
+# Step 3: Lock. Never truncate or follow a pre-existing path we do not own.
+# Creation uses noclobber (O_CREAT|O_EXCL), so an existing file, a dangling
+# symlink, or a raced creation fails loudly instead of being truncated or
+# followed. The fd is then opened append-only, which never truncates.
+if [[ -L "$STATE_DIR/refresh.lock" ]]; then
+    die "$STATE_DIR/refresh.lock is a symlink; refusing to use it" 1
 fi
 if [[ ! -e "$STATE_DIR/refresh.lock" ]]; then
-    ( umask 077; : >"$STATE_DIR/refresh.lock" )
+    ( set -C; umask 077; : >"$STATE_DIR/refresh.lock" ) 2>/dev/null \
+        || die "could not create $STATE_DIR/refresh.lock" 1
     manifest_add "[files]" "$STATE_DIR/refresh.lock sha256:$(sha_of "$STATE_DIR/refresh.lock")"
+elif [[ ! -f "$STATE_DIR/refresh.lock" ]]; then
+    die "$STATE_DIR/refresh.lock exists and is not a regular file" 1
 fi
 exec 9>>"$STATE_DIR/refresh.lock"
 # Prefer the system flock: some homebrew builds return 0 without taking the lock.

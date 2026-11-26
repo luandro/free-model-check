@@ -1,9 +1,0 @@
-{
-  "lastQuery": "READ-ONLY: no commits, pushes, or edits. Verify your last blockers are fixed in 'git diff main' at /home/luandro/.local/share/opencode/worktree/0ede94/free-models-junior (head 1b8497c).\n\nYou raised: with -f in use, refresh.sh and install.sh could replace an unowned destination because (a) the ownership check followed symlinks via sha256sum, (b) a swap could land between check and link, and (c) --update alone could re-point an unowned skill symlink.\n\nClaimed fixes:\n- Both refresh.sh publish sites refuse a symlinked destination (-L check) before the forced link.\n- install.sh's replace flag now requires a plain file (-e && ! -L).\n- The skill symlink is re-pointed only when recorded in the manifest, never on --update alone.\n- The wrapper now logs generated_unix so advancement is provable.\n\nAlso confirm the author's empirical result: generated_unix advanced 1795609006 -> 1795609506 across a wrapper run, and uninstall left only refresh.lock.\n\nOutput BLOCKER/RISK/NIT/OK with file:line. Be concise.",
-  "perAgentQuery": {},
-  "graftReads": 0,
-  "sourceReads": 0,
-  "savedTokens": 0,
-  "injectedPointers": [],
-  "nudges": 0
-}
