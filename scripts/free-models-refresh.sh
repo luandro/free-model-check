@@ -25,6 +25,10 @@
 #
 set -euo pipefail
 
+# Original argv, captured before the parse loop shifts it away: the lock helper
+# re-execs this script with the same arguments, so they must survive parsing.
+ORIG_ARGS=("$@")
+
 STATE_DIR="${STATE_DIR:-$HOME/.software-factory}"
 # REPO_DIR is only the units' WorkingDirectory. The filter and probe are
 # installed into STATE_DIR, so nothing here depends on the checkout surviving:
@@ -66,7 +70,7 @@ done
 
 if [ "$DRY_RUN" -eq 1 ]; then
     echo "mkdir -p \"$STATE_DIR\""
-    echo "exec 9>>\"$LOCK_FILE\"; flock -w 900 9"
+    echo "python3 \"$STATE_DIR/free-models-lock.py\" \"$LOCK_FILE\" 900 bash \"$0\" \"\${ORIG_ARGS[@]}\"  # holds exclusive flock on fd 9"
     if [ "$SKIP_FILTER" -eq 0 ]; then
         echo "timeout 300 python3 \"$STATE_DIR/free_model_filter.py\" --require-agent-ready --output-prefix \"$STATE_DIR/staging-\$\$/free_models\""
         echo "# validate staged catalogue, then mv -f each free_models* into \"$STATE_DIR\""
@@ -81,58 +85,31 @@ fi
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR" 2>/dev/null || true
 
-# 3. Acquire the exclusive lock before loading credentials.
-# X timeout
-# would queue concurrent ticks instead of skipping them.
-# The system flock is preferred: some homebrew builds return 0 without ever
-# taking the lock, which would silently let two sweeps run at once.
-FLOCK_BIN=""
-for candidate in /usr/bin/flock /bin/flock; do
-    if [ -x "$candidate" ]; then FLOCK_BIN="$candidate"; break; fi
-done
-if [ -z "$FLOCK_BIN" ]; then
-    FLOCK_BIN="$(command -v flock || true)"
+# 3. Acquire the exclusive lock before loading credentials. The helper opens
+# the lock O_RDONLY|O_NOFOLLOW|O_NONBLOCK (a symlink is never followed and a
+# FIFO never blocks the open), verifies the descriptor is a regular file, takes
+# an exclusive flock with a bounded wait, and re-execs this script with the lock
+# held on fd 9. The wait comfortably exceeds a probe sweep (up to 600 s): both
+# timers can fire on the same minute, and the refresh is the run that must not
+# be starved, or the catalogue ages past the probe's 6-hour gate.
+if [ "${_FREE_MODELS_LOCKED:-0}" != "1" ]; then
+    LOCK_HELPER="$STATE_DIR/free-models-lock.py"
+    if [ ! -f "$LOCK_HELPER" ]; then
+        echo "lock helper missing: $LOCK_HELPER" >&2
+        exit 77
+    fi
+    export _FREE_MODELS_LOCKED=1
+    exec python3 "$LOCK_HELPER" "$LOCK_FILE" 900 bash "$0" "${ORIG_ARGS[@]}"
 fi
-if [ -z "$FLOCK_BIN" ]; then
-    echo "flock is required but was not found" >&2
-    exit 77
-fi
-
-# 3. Lock. Never truncate or follow a path we do not own. Creation uses
-# noclobber (O_CREAT|O_EXCL) so an existing file, a dangling symlink, or a
-# raced creation fails loudly. The fd is then opened READ-ONLY (9<): O_RDONLY
-# never truncates and never creates the target of a dangling symlink, and flock
-# works on a read-only fd. After the open we re-verify the path is still a
-# regular file and that fd 9 and the path name the same device:inode, closing
-# the window where a symlink or different file is swapped in before the open.
-if [ -L "$LOCK_FILE" ]; then
-    echo "lock file $LOCK_FILE is a symlink; refusing to use it" >&2
-    exit 1
-fi
-if [ ! -e "$LOCK_FILE" ]; then
-    ( set -C; umask 077; : >"$LOCK_FILE" ) 2>/dev/null \
-        || { echo "could not create $LOCK_FILE" >&2; exit 1; }
-elif [ ! -f "$LOCK_FILE" ]; then
-    echo "lock file $LOCK_FILE is not a regular file" >&2
-    exit 1
-fi
-exec 9<"$LOCK_FILE"
-if [ -L "$LOCK_FILE" ] || [ ! -f "$LOCK_FILE" ]; then
-    echo "lock file $LOCK_FILE changed while opening; refusing to use it" >&2
-    exit 1
-fi
+# The re-exec'd pass must prove the handoff: fd 9 has to be open and name the
+# exact inode at the lock path. A stray _FREE_MODELS_LOCKED=1 inherited from the
+# environment (fd 9 closed or pointing elsewhere) is refused, not skipped.
 if [ "$(stat -Lc '%d:%i' /proc/self/fd/9 2>/dev/null)" != \
      "$(stat -c '%d:%i' "$LOCK_FILE" 2>/dev/null)" ]; then
-    echo "lock file $LOCK_FILE was swapped while opening; refusing to use it" >&2
+    echo "lock handoff invalid: fd 9 does not match $LOCK_FILE" >&2
     exit 1
 fi
-# The wait must comfortably exceed a probe sweep (up to 600 s). Both timers can
-# fire on the same minute, and the refresh is the one that must not be starved:
-# skipping it lets the catalogue age past the probe's 6-hour gate.
-if ! "$FLOCK_BIN" -w 900 9; then
-    echo "another refresh is running; giving up" >&2
-    exit 75
-fi
+# fd 9 is the exclusive lock, held for the lifetime of this process.
 
 # 4. Installation-state check.
 if [ ! -f "$MANIFEST" ]; then

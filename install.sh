@@ -2,9 +2,14 @@
 # install.sh — setup, credentials, scripts, units (steps 1-7)
 set -euo pipefail
 
+# Original argv, captured before the parse loop shifts it away: the lock helper
+# re-execs this script with the same arguments, so they must survive parsing.
+ORIG_ARGS=("$@")
+
 STATE_DIR="${STATE_DIR:-$HOME/.software-factory}"
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 MANIFEST="$STATE_DIR/installed-manifest"
+LOCK_HELPER="$REPO_ROOT/scripts/free-models-lock.py"
 
 INTERVAL_REFRESH="4h"
 INTERVAL_PROBE="30m"
@@ -34,42 +39,41 @@ EOF
 
 sha_of() { sha256sum "$1" | cut -d' ' -f1; }
 
+# Acquire the exclusive lock on $1 (wait $2 seconds) by re-execing this script
+# through the python helper. The helper opens the lock O_RDONLY|O_NOFOLLOW|
+# O_NONBLOCK (never follows a symlink, never blocks on a FIFO, never truncates),
+# verifies the descriptor is a regular file, takes an exclusive flock with a
+# bounded wait, and re-execs us with the lock held on fd 9. The repo copy of the
+# helper is used because install/uninstall run from the checkout, where it is
+# always present. _FREE_MODELS_LOCKED marks the re-exec'd pass so it skips.
+acquire_lock() {
+    local lock="$1" wait="$2"
+    if [[ "${_FREE_MODELS_LOCKED:-0}" == "1" ]]; then
+        # The re-exec'd pass must prove the handoff: fd 9 has to be open and
+        # name the exact inode at the lock path. A stray _FREE_MODELS_LOCKED=1
+        # inherited from the environment (with fd 9 closed or pointing
+        # elsewhere) is refused rather than silently skipping the lock.
+        if [[ "$(stat -Lc '%d:%i' /proc/self/fd/9 2>/dev/null)" != \
+              "$(stat -c '%d:%i' "$lock" 2>/dev/null)" ]]; then
+            die "lock handoff invalid: fd 9 does not match $lock" 1
+        fi
+        return 0
+    fi
+    if [[ ! -f "$LOCK_HELPER" ]]; then
+        die "lock helper missing: $LOCK_HELPER" 77
+    fi
+    export _FREE_MODELS_LOCKED=1
+    exec python3 "$LOCK_HELPER" "$lock" "$wait" bash "$0" "${ORIG_ARGS[@]}"
+}
+
 # Replaced by part 3; present now so --uninstall is not silently ignored.
 do_uninstall() {
     mkdir -p "$STATE_DIR"
     chmod 700 "$STATE_DIR" 2>/dev/null || true
 
-    local flock_bin=""
-    for candidate in /usr/bin/flock /bin/flock; do
-        if [[ -x "$candidate" ]]; then flock_bin="$candidate"; break; fi
-    done
-    if [[ -z "$flock_bin" ]]; then
-        flock_bin="$(command -v flock || true)"
-    fi
-    [[ -n "$flock_bin" ]] || die "flock not found" 77
-
-    # Open the lock the same hardened way as install: create with noclobber if
-    # absent, then open READ-ONLY (never truncates, never follows a dangling
-    # symlink to create its target) and re-verify the fd and path still name the
-    # same regular file before taking the lock.
-    if [ -L "$STATE_DIR/refresh.lock" ]; then
-        die "$STATE_DIR/refresh.lock is a symlink; refusing to use it" 1
-    fi
-    if [ ! -e "$STATE_DIR/refresh.lock" ]; then
-        ( set -C; umask 077; : >"$STATE_DIR/refresh.lock" ) 2>/dev/null \
-            || die "could not create $STATE_DIR/refresh.lock" 1
-    elif [ ! -f "$STATE_DIR/refresh.lock" ]; then
-        die "$STATE_DIR/refresh.lock exists and is not a regular file" 1
-    fi
-    exec 9<"$STATE_DIR/refresh.lock"
-    if [ -L "$STATE_DIR/refresh.lock" ] || [ ! -f "$STATE_DIR/refresh.lock" ]; then
-        die "$STATE_DIR/refresh.lock changed while opening; refusing to use it" 1
-    fi
-    if [ "$(stat -Lc '%d:%i' /proc/self/fd/9 2>/dev/null)" != \
-         "$(stat -c '%d:%i' "$STATE_DIR/refresh.lock" 2>/dev/null)" ]; then
-        die "$STATE_DIR/refresh.lock was swapped while opening; refusing to use it" 1
-    fi
-    "$flock_bin" -w 120 9 || die "could not acquire lock after 120s" 75
+    # Acquire the lock through the hardened helper (O_NOFOLLOW|O_NONBLOCK open,
+    # regular-file check, bounded flock), same as the install path.
+    acquire_lock "$STATE_DIR/refresh.lock" 120
 
     if [[ ! -f "$MANIFEST" ]]; then
         printf 'nothing to uninstall\n'
@@ -180,6 +184,17 @@ do_uninstall() {
         local path="${files[i]}"
         local expected="${file_hashes[i]}"
         local type="${file_types[i]}"
+
+        # The lock file is ephemeral infrastructure, never an owned artifact.
+        # A legacy manifest that lists it must not let uninstall delete it: that
+        # would drop the lock mid-run and let a concurrent tick lock a fresh
+        # inode. Leave it in place and do not count it as "skipped", so it does
+        # not force the manifest to be kept. (Increment i before continue: the
+        # loop's i++ lives at the bottom, which continue would skip.)
+        if [[ "$path" == "$STATE_DIR/refresh.lock" ]]; then
+            i=$((i + 1))
+            continue
+        fi
 
         if [[ -e "$path" || -L "$path" ]]; then
             local match=0
@@ -481,48 +496,20 @@ done < "$REPO_ROOT/.env"
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR" 2>/dev/null || true
 
-# Step 3: Lock. Never truncate or follow a path we do not own. Creation uses
-# noclobber (O_CREAT|O_EXCL), so an existing file, a dangling symlink, or a
-# raced creation fails loudly instead of being truncated or followed. The fd is
-# then opened READ-ONLY (9<): O_RDONLY never truncates and never creates the
-# target of a dangling symlink, and flock works on a read-only fd. After the
-# open we re-verify that the path is still a regular file and that fd 9 and the
-# path name the same device:inode. That closes the window where a symlink (or a
-# different file) is swapped in between the checks above and the open.
-if [[ -L "$STATE_DIR/refresh.lock" ]]; then
-    die "$STATE_DIR/refresh.lock is a symlink; refusing to use it" 1
-fi
-if [[ ! -e "$STATE_DIR/refresh.lock" ]]; then
-    ( set -C; umask 077; : >"$STATE_DIR/refresh.lock" ) 2>/dev/null \
-        || die "could not create $STATE_DIR/refresh.lock" 1
-    manifest_add "[files]" "$STATE_DIR/refresh.lock sha256:$(sha_of "$STATE_DIR/refresh.lock")"
-elif [[ ! -f "$STATE_DIR/refresh.lock" ]]; then
-    die "$STATE_DIR/refresh.lock exists and is not a regular file" 1
-fi
-exec 9<"$STATE_DIR/refresh.lock"
-if [[ -L "$STATE_DIR/refresh.lock" || ! -f "$STATE_DIR/refresh.lock" ]]; then
-    die "$STATE_DIR/refresh.lock changed while opening; refusing to use it" 1
-fi
-if [[ "$(stat -Lc '%d:%i' /proc/self/fd/9 2>/dev/null)" != \
-      "$(stat -c '%d:%i' "$STATE_DIR/refresh.lock" 2>/dev/null)" ]]; then
-    die "$STATE_DIR/refresh.lock was swapped while opening; refusing to use it" 1
-fi
-# Prefer the system flock: some homebrew builds return 0 without taking the lock.
-FLOCK_BIN=""
-for candidate in /usr/bin/flock /bin/flock; do
-    if [[ -x "$candidate" ]]; then FLOCK_BIN="$candidate"; break; fi
-done
-if [[ -z "$FLOCK_BIN" ]]; then
-    FLOCK_BIN="$(command -v flock || true)"
-fi
-[[ -n "$FLOCK_BIN" ]] || die "flock not found" 77
-"$FLOCK_BIN" -w 120 9 || die "could not acquire lock after 120s" 75
+# Step 3: Lock via the hardened helper (O_NOFOLLOW|O_NONBLOCK open, regular-file
+# check, bounded flock), which re-execs this script with the lock on fd 9. The
+# lock file is ephemeral infrastructure and is deliberately NOT added to the
+# manifest: uninstall must never delete it (that would drop the lock mid-run and
+# let a concurrent tick lock a fresh inode), and install must never adopt a
+# pre-existing lock file as an owned artifact.
+acquire_lock "$STATE_DIR/refresh.lock" 120
 
 # Step 4: Preflight
 preflight_paths=(
     "$STATE_DIR/free-models.env"
     "$STATE_DIR/free-models-probe.py"
     "$STATE_DIR/free-models-refresh.sh"
+    "$STATE_DIR/free-models-lock.py"
     "$HOME/.config/systemd/user/free-models-refresh.service"
     "$HOME/.config/systemd/user/free-models-refresh.timer"
     "$HOME/.config/systemd/user/free-models-probe.service"
@@ -610,6 +597,8 @@ install -m 0755 "$REPO_ROOT/scripts/free-models-probe.py" "$STATE_DIR/free-model
 manifest_add "[files]" "$STATE_DIR/free-models-probe.py sha256:$(sha_of "$STATE_DIR/free-models-probe.py")"
 install -m 0755 "$REPO_ROOT/scripts/free-models-refresh.sh" "$STATE_DIR/free-models-refresh.sh"
 manifest_add "[files]" "$STATE_DIR/free-models-refresh.sh sha256:$(sha_of "$STATE_DIR/free-models-refresh.sh")"
+install -m 0755 "$REPO_ROOT/scripts/free-models-lock.py" "$STATE_DIR/free-models-lock.py"
+manifest_add "[files]" "$STATE_DIR/free-models-lock.py sha256:$(sha_of "$STATE_DIR/free-models-lock.py")"
 install -m 0644 "$REPO_ROOT/free_model_filter.py" "$STATE_DIR/free_model_filter.py"
 manifest_add "[files]" "$STATE_DIR/free_model_filter.py sha256:$(sha_of "$STATE_DIR/free_model_filter.py")"
 # The skill is read through the symlink, so it must not live only in the repo.
