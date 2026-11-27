@@ -1,0 +1,1109 @@
+#!/usr/bin/env bash
+# install.sh — setup, credentials, scripts, units (steps 1-7)
+set -euo pipefail
+
+# Original argv, captured before the parse loop shifts it away: the lock helper
+# re-execs this script with the same arguments, so they must survive parsing.
+ORIG_ARGS=("$@")
+
+STATE_DIR="${STATE_DIR:-$HOME/.software-factory}"
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+MANIFEST="$STATE_DIR/installed-manifest"
+LOCK_HELPER="$REPO_ROOT/scripts/free-models-lock.py"
+
+INTERVAL_REFRESH="4h"
+INTERVAL_PROBE="30m"
+DO_UPDATE=0
+DO_UNINSTALL=0
+DRY_RUN=0
+HARNESS_INTEGRATION=1
+
+die() {
+    local code="${2:-1}"
+    printf 'ERROR: %s\n' "$1" >&2
+    exit "$code"
+}
+
+usage() {
+    cat <<'EOF' >&2
+Usage: install.sh [options]
+  --interval-refresh X   default 4h; accept 1h..4h (hours only, reject longer)
+  --interval-probe X     default 30m; accept 15m..60m (minutes only)
+  --no-harness-integration
+  --update
+  --uninstall
+  --dry-run
+  -h | --help
+EOF
+}
+
+sha_of() { sha256sum "$1" | cut -d' ' -f1; }
+
+# Acquire the exclusive lock on $1 (wait $2 seconds) by re-execing this script
+# through the python helper. The helper opens the lock O_RDONLY|O_NOFOLLOW|
+# O_NONBLOCK (never follows a symlink, never blocks on a FIFO, never truncates),
+# verifies the descriptor is a regular file, takes an exclusive flock with a
+# bounded wait, and re-execs us with the lock held on fd 9. The repo copy of the
+# helper is used because install/uninstall run from the checkout, where it is
+# always present. _FREE_MODELS_LOCKED marks the re-exec'd pass so it skips.
+acquire_lock() {
+    local lock="$1" wait="$2"
+    if [[ "${_FREE_MODELS_LOCKED:-0}" == "1" ]]; then
+        # The re-exec'd pass must prove the handoff: fd 9 has to be open and
+        # name the exact inode at the lock path. A stray _FREE_MODELS_LOCKED=1
+        # inherited from the environment (with fd 9 closed or pointing
+        # elsewhere) is refused rather than silently skipping the lock. Both
+        # stats must succeed: if either is empty (fd 9 closed, path absent) the
+        # comparison would otherwise be empty==empty and fail open.
+        local fd_id path_id
+        fd_id="$(stat -Lc '%d:%i' /proc/self/fd/9 2>/dev/null || true)"
+        path_id="$(stat -c '%d:%i' "$lock" 2>/dev/null || true)"
+        if [[ -z "$fd_id" || -z "$path_id" || "$fd_id" != "$path_id" ]]; then
+            die "lock handoff invalid: fd 9 does not match $lock" 1
+        fi
+        return 0
+    fi
+    if [[ ! -f "$LOCK_HELPER" ]]; then
+        die "lock helper missing: $LOCK_HELPER" 77
+    fi
+    export _FREE_MODELS_LOCKED=1
+    exec python3 "$LOCK_HELPER" "$lock" "$wait" bash "$0" "${ORIG_ARGS[@]}"
+}
+
+# Replaced by part 3; present now so --uninstall is not silently ignored.
+do_uninstall() {
+    mkdir -p "$STATE_DIR"
+    chmod 700 "$STATE_DIR" 2>/dev/null || true
+
+    # Acquire the lock through the hardened helper (O_NOFOLLOW|O_NONBLOCK open,
+    # regular-file check, bounded flock), same as the install path.
+    acquire_lock "$STATE_DIR/refresh.lock" 120
+
+    if [[ ! -f "$MANIFEST" ]]; then
+        printf 'nothing to uninstall\n'
+        return 0
+    fi
+
+    local -a units=()
+    local -a unit_hashes=()
+    local -a files=()
+    local -a file_hashes=()
+    local -a file_types=()
+    local agents_md_path=""
+    local agents_md_block_sha=""
+    local in_section=""
+
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        if [[ "$line" == \[*] ]]; then
+            in_section="${line//[\[\]]/}"
+            continue
+        fi
+        case "$in_section" in
+            units)
+                local unit="${line%% sha256:*}"
+                local hash="${line#*sha256:}"
+                [[ "$line" == *"sha256:"* ]] || continue
+                units+=("$unit")
+                unit_hashes+=("$hash")
+                ;;
+            files)
+                local path="${line%% sha256:*}"
+                path="${path%% symlink:*}"
+                local hash=""
+                local type=""
+                if [[ "$line" == *"sha256:"* ]]; then
+                    hash="${line#*sha256:}"
+                    type="file"
+                elif [[ "$line" == *"symlink:"* ]]; then
+                    hash="${line#*symlink:}"
+                    type="symlink"
+                else
+                    continue
+                fi
+                files+=("$path")
+                file_hashes+=("$hash")
+                file_types+=("$type")
+                ;;
+            agents_md)
+                if [[ "$line" == path=* ]]; then
+                    agents_md_path="${line#path=}"
+                elif [[ "$line" == block_sha256=* ]]; then
+                    agents_md_block_sha="${line#block_sha256=}"
+                fi
+                ;;
+        esac
+    done < "$MANIFEST"
+
+    local -a removed_units=()
+    local -a skipped_units=()
+    local -a removed_files=()
+    local -a skipped_files=()
+    local agents_md_removed=0
+    local agents_md_skipped=0
+
+    local i=0
+    while [[ $i -lt ${#units[@]} ]]; do
+        local unit="${units[i]}"
+        local expected_hash="${unit_hashes[i]}"
+        local unit_path="$HOME/.config/systemd/user/$unit"
+
+        if [[ -f "$unit_path" ]]; then
+            local current_hash
+            current_hash="$(sha_of "$unit_path")"
+            if [[ "$current_hash" == "$expected_hash" ]]; then
+                systemctl --user disable --now "$unit" >/dev/null 2>&1 || true
+                removed_units+=("$unit")
+            else
+                printf 'WARNING: %s was modified after install; leaving it alone\n' "$unit" >&2
+                skipped_units+=("$unit")
+            fi
+        else
+            printf 'WARNING: %s not found; leaving it alone\n' "$unit" >&2
+            skipped_units+=("$unit")
+        fi
+        i=$((i + 1))
+    done
+
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+
+    i=0
+    while [[ $i -lt ${#units[@]} ]]; do
+        local unit="${units[i]}"
+        local expected_hash="${unit_hashes[i]}"
+        local unit_path="$HOME/.config/systemd/user/$unit"
+
+        if [[ -f "$unit_path" ]]; then
+            local current_hash
+            current_hash="$(sha_of "$unit_path")"
+            if [[ "$current_hash" == "$expected_hash" ]]; then
+                rm -f "$unit_path"
+            fi
+        fi
+        i=$((i + 1))
+    done
+
+    i=0
+    while [[ $i -lt ${#files[@]} ]]; do
+        local path="${files[i]}"
+        local expected="${file_hashes[i]}"
+        local type="${file_types[i]}"
+
+        # The lock file is ephemeral infrastructure, never an owned artifact.
+        # A legacy manifest that lists it must not let uninstall delete it: that
+        # would drop the lock mid-run and let a concurrent tick lock a fresh
+        # inode. Leave it in place and do not count it as "skipped", so it does
+        # not force the manifest to be kept. (Increment i before continue: the
+        # loop's i++ lives at the bottom, which continue would skip.)
+        if [[ "$path" == "$STATE_DIR/refresh.lock" ]]; then
+            i=$((i + 1))
+            continue
+        fi
+
+        if [[ -e "$path" || -L "$path" ]]; then
+            local match=0
+            if [[ "$type" == "file" ]]; then
+                if [[ -f "$path" ]]; then
+                    local current_hash
+                    current_hash="$(sha_of "$path")"
+                    [[ "$current_hash" == "$expected" ]] && match=1
+                fi
+            elif [[ "$type" == "symlink" && "$expected" == "dir" ]]; then
+                # An owned directory: remove it only when empty.
+                if [[ -d "$path" && -z "$(ls -A "$path" 2>/dev/null)" ]]; then
+                    rmdir "$path" && match=1
+                fi
+            elif [[ "$type" == "symlink" ]]; then
+                if [[ -L "$path" ]]; then
+                    local target
+                    target="$(readlink "$path")"
+                    [[ "$target" == "$expected" ]] && match=1
+                fi
+            fi
+            if [[ $match -eq 1 ]]; then
+                rm -f "$path"
+                removed_files+=("$path")
+            else
+                printf 'WARNING: %s was modified after install; leaving it alone\n' "$path" >&2
+                skipped_files+=("$path")
+            fi
+        else
+            # Already gone: nothing to remove. Not a "skip" -- counting a
+            # missing file as skipped would needlessly retain the manifest.
+            :
+        fi
+        i=$((i + 1))
+    done
+
+    if [[ -n "$agents_md_path" && -n "$agents_md_block_sha" ]]; then
+        if [[ -f "$agents_md_path" ]]; then
+            local begin_mark='<!-- free-models-junior:begin -->'
+            local end_mark='<!-- free-models-junior:end -->'
+            local begin_count
+            begin_count=$(grep -cF "$begin_mark" "$agents_md_path" 2>/dev/null | head -1) || true
+            begin_count="${begin_count:-0}"
+            end_count=$(grep -cF "$end_mark" "$agents_md_path" 2>/dev/null | head -1) || true
+            end_count="${end_count:-0}"
+
+            if [[ $begin_count -eq 1 && $end_count -eq 1 ]]; then
+                local tmp_block
+                tmp_block="$(mktemp "$STATE_DIR/block.XXXXXX")"
+                awk -v begin="$begin_mark" -v end="$end_mark" '
+                    $0 == begin { in_block=1; next }
+                    $0 == end   { in_block=0; next }
+                    in_block   { print }
+                ' "$agents_md_path" >"$tmp_block"
+                local block_hash
+                block_hash="$(sha_of "$tmp_block")"
+                rm -f "$tmp_block"
+
+                if [[ "$block_hash" == "$agents_md_block_sha" ]]; then
+                    local tmp_agents
+                    tmp_agents="$(mktemp "$STATE_DIR/AGENTS.md.XXXXXX")"
+                    awk -v begin="$begin_mark" -v end="$end_mark" '
+                        $0 == begin { skipping=1; next }
+                        $0 == end   { skipping=0; next }
+                        skipping    { next }
+                        { print }
+                    ' "$agents_md_path" >"$tmp_agents"
+                    # Preserve the original mode across the atomic mv (mktemp is 0600).
+                    local agents_mode
+                    agents_mode="$(stat -c '%a' "$agents_md_path" 2>/dev/null || true)"
+                    mv "$tmp_agents" "$agents_md_path"
+                    [[ -n "$agents_mode" ]] && chmod "$agents_mode" "$agents_md_path" 2>/dev/null || true
+                    agents_md_removed=1
+                else
+                    printf 'WARNING: AGENTS.md block was modified; leaving it alone\n' >&2
+                    agents_md_skipped=1
+                fi
+            else
+                printf 'WARNING: AGENTS.md block was modified; leaving it alone\n' >&2
+                agents_md_skipped=1
+            fi
+        else
+            agents_md_skipped=1
+        fi
+    fi
+
+    # Generated outputs need no separate pass: the [files] loop above already
+    # covers every path the installer or the wrapper recorded, and it applies the
+    # same hash check. A second loop here only produced duplicate warnings.
+
+    # Keep the manifest when anything was skipped: deleting it would leave the
+    # surviving files unowned, so a re-run could not adopt or remove them.
+    if [[ ${#skipped_files[@]} -eq 0 && ${#skipped_units[@]} -eq 0 ]]; then
+        rm -f "$MANIFEST"
+    else
+        printf 'Manifest kept because some artifacts were left in place\n' >&2
+    fi
+    # Remove the installer-owned scratch trees, but only when empty: a stray
+    # file means the user put something there.
+    local scratch
+    for scratch in "$STATE_DIR/backups" "$STATE_DIR/skills"; do
+        if [[ -d "$scratch" ]]; then
+            if [[ -z "$(ls -A "$scratch" 2>/dev/null)" ]]; then
+                rmdir "$scratch"
+            else
+                printf 'WARNING: %s is not empty; leaving it alone\n' "$scratch" >&2
+            fi
+        fi
+    done
+    # Remove the bootstrap staging dir only when it holds nothing but this
+    # installer's own free_models* files. Anything else — a subdirectory, a
+    # backup, an unreadable entry — means it is not ours to delete.
+    local stage="$STATE_DIR/staging-bootstrap"
+    if [[ -d "$stage" ]]; then
+        # Only plain regular files named exactly free_models.json/.csv or
+        # free_models_<lane>.json/.csv are ours. A free_models_backup file,
+        # a directory, or a symlink means the dir is not ours to delete.
+        local unexpected
+        unexpected="$(find "$stage" -mindepth 1 -maxdepth 1 \
+            -regextype posix-extended \
+            \( ! -type f -o ! -regex '.*/free_models(_[a-z]+)?\.(json|csv)' \) \
+            -print 2>/dev/null)"
+        if [[ -n "$unexpected" ]]; then
+            printf 'WARNING: %s has unexpected content; leaving it alone\n' "$stage" >&2
+        else
+            rm -rf "$stage"
+        fi
+    fi
+
+    printf 'Removed units:\n'
+    for u in "${removed_units[@]}"; do printf '  %s\n' "$u"; done
+    printf 'Skipped units:\n'
+    for u in "${skipped_units[@]}"; do printf '  %s\n' "$u"; done
+    printf 'Removed files:\n'
+    for f in "${removed_files[@]}"; do printf '  %s\n' "$f"; done
+    printf 'Skipped files:\n'
+    for f in "${skipped_files[@]}"; do printf '  %s\n' "$f"; done
+    if [[ $agents_md_removed -eq 1 ]]; then
+        printf 'Removed AGENTS.md block\n'
+    elif [[ $agents_md_skipped -eq 1 ]]; then
+        printf 'Skipped AGENTS.md block\n'
+    fi
+}
+
+# Rewrite the manifest with one line added to its named section. Appending to the
+# end of the file would drop the row into whatever section happens to be last, so
+# the file is rebuilt section by section instead.
+manifest_add() {
+    local section="${1//[\[\]]/}" line="$2" tmp
+    tmp="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
+    if [[ ! -f "$MANIFEST" ]]; then
+        printf '[meta]\nversion=1\nstate_dir=%s\nrepo=%s\n' "$STATE_DIR" "$REPO_ROOT" >"$tmp"
+    else
+        cat "$MANIFEST" >"$tmp"
+    fi
+    # Drop an existing row for the same path first, so --update replaces rather
+    # than duplicates. The match is anchored to the whole first field: an
+    # unanchored substring would let a short key (the [complete] row's "1")
+    # delete unrelated rows. A row that is just the key (no trailing space, as
+    # the [complete] "1" row is) is matched whole-line so it dedups against
+    # itself instead of accumulating duplicates.
+    local key="${line%% *}"
+    awk -v key="$key" '
+        $0 == key { next }
+        index($0, key " ") == 1 { next }
+        { print }
+    ' "$tmp" >"$tmp.dedup" 2>/dev/null || true
+    mv "$tmp.dedup" "$tmp"
+    if grep -qxF "[$section]" "$tmp" 2>/dev/null; then
+        # Insert the row at the end of its own section: after the header until
+        # the next header (or EOF).
+        awk -v want="[$section]" -v row="$line" '
+            /^\[/ {
+                if (inside) { print row; inside = 0 }
+                inside = ($0 == want)
+                print
+                next
+            }
+            { print }
+            END { if (inside) print row }
+        ' "$tmp" >"$tmp.new" && mv "$tmp.new" "$tmp"
+    else
+        printf '\n[%s]\n%s\n' "$section" "$line" >>"$tmp"
+    fi
+    mv "$tmp" "$MANIFEST"
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --interval-refresh) [[ $# -ge 2 ]] || die "--interval-refresh needs a value"; INTERVAL_REFRESH="$2"; shift 2 ;;
+        --interval-probe) [[ $# -ge 2 ]] || die "--interval-probe needs a value"; INTERVAL_PROBE="$2"; shift 2 ;;
+        --no-harness-integration) HARNESS_INTEGRATION=0; shift ;;
+        --update) DO_UPDATE=1; shift ;;
+        --uninstall) DO_UNINSTALL=1; shift ;;
+        --dry-run) DRY_RUN=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage; die "unknown flag: $1" 2 ;;
+    esac
+done
+
+parse_interval() {
+    local interval="$1" min="$2" max="$3" unit="$4" name="$5" value expr
+    # The bounds are expressed in the unit the flag uses: minutes for the probe
+    # (15..60) and hours for the refresh (1..4). Comparing across units would
+    # accept "1m" as a refresh interval and reject a valid "1h" probe.
+    if [[ "$interval" =~ ^([0-9]+)m$ ]]; then
+        value="${BASH_REMATCH[1]}"
+        [[ "$unit" == "m" ]] || die "$name interval must be in hours, got: $interval"
+        (( value >= min && value <= max )) || die "$name interval ${value}m outside range ${min}m..${max}m"
+        (( 60 % value == 0 )) || die "$name interval ${value}m must divide 60"
+        # 60m is the one-hour case; *:0/60 is rejected by systemd, so spell it
+        # as an hourly expression instead. The minute field must be a single
+        # 00 (not *, which would fire every minute).
+        if [[ "$value" == "60" ]]; then
+            expr="*-*-* *:00:00"
+        else
+            expr="*:0/${value}"
+        fi
+    elif [[ "$interval" =~ ^([0-9]+)h$ ]]; then
+        value="${BASH_REMATCH[1]}"
+        [[ "$unit" == "h" ]] || die "$name interval must be in minutes, got: $interval"
+        (( value >= min && value <= max )) || die "$name interval ${value}h outside range ${min}h..${max}h"
+        (( 24 % value == 0 )) || die "$name interval ${value}h must divide 24"
+        expr="*-*-* 00/${value}:00:00"
+    else
+        die "$name interval must be like 30m or 1h, got: $interval"
+    fi
+    systemd-analyze calendar "$expr" >/dev/null || die "$name interval validation failed: $expr"
+    printf '%s\n' "$expr"
+}
+
+# Minutes and hours are different units: 30m is valid while 30h is not, so each
+# bound is expressed in the unit the flag actually uses.
+REFRESH_EXPR="$(parse_interval "$INTERVAL_REFRESH" 1 4 h refresh)"
+PROBE_EXPR="$(parse_interval "$INTERVAL_PROBE" 15 60 m probe)"
+
+if [[ $(id -u) -eq 0 ]]; then die "refusing to run as root"; fi
+
+if [[ $DO_UNINSTALL -eq 1 ]]; then
+    # Dry-run is checked first: a combined --uninstall --dry-run must not touch
+    # anything, and uninstall would otherwise run for real.
+    if [[ $DRY_RUN -eq 1 ]]; then
+        printf 'DRY RUN: would uninstall from %s\n' "$STATE_DIR"
+        exit 0
+    fi
+    do_uninstall
+    exit $?
+fi
+
+if [[ $DRY_RUN -eq 1 ]]; then
+    # Resolve the same canonical path the real run would, so dry-run does not
+    # name a different file than the one that gets the managed block.
+    dry_agents="$HOME/Dev/agent-harnesses/instructions/AGENTS.md"
+    if [[ -L "$HOME/.claude/CLAUDE.md" ]]; then
+        dry_resolved="$(readlink -f "$HOME/.claude/CLAUDE.md" || true)"
+        [[ -n "$dry_resolved" ]] && dry_agents="$dry_resolved"
+    fi
+    cat <<EOF
+DRY RUN — no changes will be made
+  state dir:      $STATE_DIR
+  repo:           $REPO_ROOT
+  refresh:        $INTERVAL_REFRESH ($REFRESH_EXPR)
+  probe:          $INTERVAL_PROBE ($PROBE_EXPR)
+  opencode bin:   $(command -v opencode 2>/dev/null || echo '<not found>')
+  harness AGENTS: $dry_agents
+  harness integration: $([[ $HARNESS_INTEGRATION -eq 1 ]] && echo yes || echo no)
+EOF
+    exit 0
+fi
+
+# Step 1: Prerequisites
+python3 --version | grep -qE 'Python 3\.(1[0-9]|[2-9][0-9])' || die "python3 >= 3.10 required"
+OPENCODE_BIN="$(command -v opencode)" || die "opencode not found in PATH"
+OPENCODE_BIN="$(readlink -f "$OPENCODE_BIN")"
+command -v systemctl >/dev/null || die "systemctl not found"
+command -v systemd-analyze >/dev/null || die "systemd-analyze not found"
+[[ -f "$REPO_ROOT/.env" ]] || die "$REPO_ROOT/.env not found"
+
+# Extract credentials: parse "$REPO_ROOT/.env" as data (never sourced).
+# The grammar matches the probe's reader: optional "export ", KEY=VALUE, and one
+# pair of surrounding quotes stripped. Three parsers with three grammars meant a
+# valid .env line could be rejected by one and accepted by another.
+AA_API_KEY=""
+OPENROUTER_API_KEY=""
+while IFS='=' read -r key value; do
+    [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
+    key="${key#export }"
+    key="${key//[[:space:]]/}"
+    value="${value%$'\r'}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    # Strip one matching pair of surrounding quotes. A case pattern cannot be
+    # used here: quoting a double quote inside a case pattern is parsed
+    # inconsistently, which left "value" wrapped in its quotes.
+    if [[ ${#value} -ge 2 ]]; then
+        first="${value:0:1}"
+        last="${value: -1}"
+        if [[ "$first" == "$last" && ( "$first" == '"' || "$first" == "'" ) ]]; then
+            value="${value:1:${#value}-2}"
+        fi
+    fi
+    case "$key" in
+        AA_API_KEY) AA_API_KEY="$value" ;;
+        OPENROUTER_API_KEY) OPENROUTER_API_KEY="$value" ;;
+    esac
+done < "$REPO_ROOT/.env"
+[[ -n "$AA_API_KEY" ]] || die "AA_API_KEY missing from .env"
+
+# Step 2
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR" 2>/dev/null || true
+# Enforce that the state dir is ours and 0700 (not a symlink, not a foreign
+# dir): the publish safety argument depends on it.
+if [[ -L "$STATE_DIR" ]]; then
+    die "$STATE_DIR is a symlink; refusing to use it" 1
+fi
+sd_uid="$(stat -c '%u' "$STATE_DIR" 2>/dev/null || echo '?')"
+sd_mode="$(stat -c '%a' "$STATE_DIR" 2>/dev/null || echo '?')"
+if [[ "$sd_uid" != "$(id -u)" || "$sd_mode" != "700" ]]; then
+    die "$STATE_DIR must be owned by $(id -u) with mode 700 (got $sd_uid:$sd_mode)" 1
+fi
+
+# Step 3: Lock via the hardened helper (O_NOFOLLOW|O_NONBLOCK open, regular-file
+# check, bounded flock), which re-execs this script with the lock on fd 9. The
+# lock file is ephemeral infrastructure and is deliberately NOT added to the
+# manifest: uninstall must never delete it (that would drop the lock mid-run and
+# let a concurrent tick lock a fresh inode), and install must never adopt a
+# pre-existing lock file as an owned artifact.
+acquire_lock "$STATE_DIR/refresh.lock" 120
+
+# Step 4: Preflight
+preflight_paths=(
+    "$STATE_DIR/free-models.env"
+    "$STATE_DIR/free-models-probe.py"
+    "$STATE_DIR/free-models-refresh.sh"
+    "$STATE_DIR/free-models-lock.py"
+    "$STATE_DIR/free_model_filter.py"
+    "$STATE_DIR/skills/free-models-junior/SKILL.md"
+    "$HOME/.config/systemd/user/free-models-refresh.service"
+    "$HOME/.config/systemd/user/free-models-refresh.timer"
+    "$HOME/.config/systemd/user/free-models-probe.service"
+    "$HOME/.config/systemd/user/free-models-probe.timer"
+)
+
+manifest_rows() {
+    # Print the rows of one section. sed's range form runs to EOF when the
+    # section is last, so '1d;$d' would delete its final data row; awk tracks
+    # the section explicitly instead.
+    local want="$1"
+    awk -v want="[$want]" '
+        /^\[/ { inside = ($0 == want); next }
+        inside && NF { print }
+    ' "$MANIFEST" 2>/dev/null
+}
+
+declare -A owned=()
+if [[ -f "$MANIFEST" ]]; then
+    # [files] rows hold absolute paths; [units] rows hold bare unit names, so
+    # each is normalised to the path preflight compares against.
+    while IFS= read -r line; do
+        [[ "$line" == /* ]] || continue
+        path="${line%% sha256:*}"
+        path="${path%% symlink:*}"
+        owned["$path"]=1
+    done < <(manifest_rows files)
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        unit_name="${line%% *}"
+        [[ "$unit_name" == *.service || "$unit_name" == *.timer ]] || continue
+        owned["$HOME/.config/systemd/user/$unit_name"]=1
+    done < <(manifest_rows units)
+fi
+
+# The bootstrap writes into STATE_DIR, so its destinations must be checked in
+# preflight too: a non-empty or unreadable staging dir has to abort before any
+# script or unit is published.
+if [[ -e "$STATE_DIR/staging-bootstrap" && ! -d "$STATE_DIR/staging-bootstrap" ]]; then
+    die "$STATE_DIR/staging-bootstrap exists and is not a directory" 1
+fi
+if [[ -d "$STATE_DIR/staging-bootstrap" ]]; then
+    if ! stage_entries="$(ls -A "$STATE_DIR/staging-bootstrap" 2>/dev/null)"; then
+        die "$STATE_DIR/staging-bootstrap is not readable" 1
+    fi
+    if [[ -n "$stage_entries" ]]; then
+        die "$STATE_DIR/staging-bootstrap is not empty; refusing to use it" 1
+    fi
+fi
+
+for path in "${preflight_paths[@]}"; do
+    if [[ -e "$path" || -L "$path" ]]; then
+        [[ -n "${owned[$path]:-}" ]] || die "refusing to overwrite $path (not owned by this installer)"
+        [[ $DO_UPDATE -eq 1 ]] || die "refusing to overwrite $path (use --update)"
+    fi
+done
+
+AGENTS_MD_PATH="$HOME/Dev/agent-harnesses/instructions/AGENTS.md"
+if [[ -L "$HOME/.claude/CLAUDE.md" ]]; then
+    resolved="$(readlink -f "$HOME/.claude/CLAUDE.md" || true)"
+    [[ -n "$resolved" ]] && AGENTS_MD_PATH="$resolved"
+fi
+[[ -e "$AGENTS_MD_PATH" ]] || die "AGENTS.md not found at $AGENTS_MD_PATH"
+
+# Step 5: Credentials
+CRED_FILE="$STATE_DIR/free-models.env"
+# Never write the API key through a symlink swapped in at the credential path.
+[[ -L "$CRED_FILE" ]] && die "$CRED_FILE is a symlink; refusing to write credentials through it" 1
+( umask 077; : >"$CRED_FILE" )   # create 0600 from the first write
+cat >"$CRED_FILE" <<EOF
+AA_API_KEY=$AA_API_KEY
+EOF
+if [[ -n "$OPENROUTER_API_KEY" ]]; then
+    printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >>"$CRED_FILE"
+else
+    printf 'WARNING: OPENROUTER_API_KEY absent from .env\n' >&2
+fi
+printf 'OPENCODE_BIN=%s\n' "$OPENCODE_BIN" >>"$CRED_FILE"
+chmod 600 "$CRED_FILE" 2>/dev/null || true
+manifest_add "[files]" "$CRED_FILE sha256:$(sha_of "$CRED_FILE")"
+
+# Step 6: Install scripts
+# Install scripts: the filter is copied as well, so the timers do not depend on
+# the checkout surviving. Installing from a git worktree would otherwise leave
+# both timers and the skill pointing at a path that disappears when it is pruned.
+install -m 0755 "$REPO_ROOT/scripts/free-models-probe.py" "$STATE_DIR/free-models-probe.py"
+manifest_add "[files]" "$STATE_DIR/free-models-probe.py sha256:$(sha_of "$STATE_DIR/free-models-probe.py")"
+install -m 0755 "$REPO_ROOT/scripts/free-models-refresh.sh" "$STATE_DIR/free-models-refresh.sh"
+manifest_add "[files]" "$STATE_DIR/free-models-refresh.sh sha256:$(sha_of "$STATE_DIR/free-models-refresh.sh")"
+install -m 0755 "$REPO_ROOT/scripts/free-models-lock.py" "$STATE_DIR/free-models-lock.py"
+manifest_add "[files]" "$STATE_DIR/free-models-lock.py sha256:$(sha_of "$STATE_DIR/free-models-lock.py")"
+install -m 0644 "$REPO_ROOT/free_model_filter.py" "$STATE_DIR/free_model_filter.py"
+manifest_add "[files]" "$STATE_DIR/free_model_filter.py sha256:$(sha_of "$STATE_DIR/free_model_filter.py")"
+# The skill is read through the symlink, so it must not live only in the repo.
+install -d "$STATE_DIR/skills/free-models-junior"
+install -m 0644 "$REPO_ROOT/scripts/skills/free-models-junior/SKILL.md" \
+    "$STATE_DIR/skills/free-models-junior/SKILL.md"
+manifest_add "[files]" "$STATE_DIR/skills/free-models-junior/SKILL.md sha256:$(sha_of "$STATE_DIR/skills/free-models-junior/SKILL.md")"
+# The directories are ours too, so an empty leftover tree is removed on uninstall.
+manifest_add "[files]" "$STATE_DIR/skills/free-models-junior symlink:dir"
+manifest_add "[files]" "$STATE_DIR/skills symlink:dir"
+
+# Step 7: Write four units
+UNIT_DIR="$HOME/.config/systemd/user"
+mkdir -p "$UNIT_DIR"
+
+cat >"$UNIT_DIR/free-models-refresh.service" <<EOF
+[Unit]
+Description=Refresh free model catalogue and rebuild the junior state file
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=STATE_DIR="$STATE_DIR"
+ExecStart="$STATE_DIR/free-models-refresh.sh"
+WorkingDirectory="$STATE_DIR"
+# Exit 75 means another run held the lock: routine, not a failure.
+SuccessExitStatus=75
+# A run that hangs (e.g. a probe child that will not die) must not hold the
+# lock forever and starve every later tick.
+TimeoutStartSec=1800
+EOF
+manifest_add "[units]" "free-models-refresh.service sha256:$(sha_of "$UNIT_DIR/free-models-refresh.service")"
+
+cat >"$UNIT_DIR/free-models-refresh.timer" <<EOF
+[Unit]
+Description=Refresh free model catalogue ($INTERVAL_REFRESH)
+
+[Timer]
+OnCalendar=$REFRESH_EXPR
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
+EOF
+manifest_add "[units]" "free-models-refresh.timer sha256:$(sha_of "$UNIT_DIR/free-models-refresh.timer")"
+
+cat >"$UNIT_DIR/free-models-probe.service" <<EOF
+[Unit]
+Description=Probe free model availability
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=STATE_DIR="$STATE_DIR"
+ExecStart="$STATE_DIR/free-models-refresh.sh" --skip-filter
+WorkingDirectory="$STATE_DIR"
+SuccessExitStatus=75
+TimeoutStartSec=1800
+EOF
+manifest_add "[units]" "free-models-probe.service sha256:$(sha_of "$UNIT_DIR/free-models-probe.service")"
+
+cat >"$UNIT_DIR/free-models-probe.timer" <<EOF
+[Unit]
+Description=Probe free model availability ($INTERVAL_PROBE)
+
+[Timer]
+OnCalendar=$PROBE_EXPR
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
+EOF
+manifest_add "[units]" "free-models-probe.timer sha256:$(sha_of "$UNIT_DIR/free-models-probe.timer")"
+
+# Clear [complete] before step 8 whenever the manifest exists and has it: a
+# re-install (plain or --update) must not inherit a stale completion marker that
+# would make the timers treat a partial install as complete. manifest_add would
+# also dedup the row now, but clearing it here keeps the window clean.
+if [[ -f "$MANIFEST" ]] && grep -qxF '[complete]' "$MANIFEST"; then
+    # Rewrite the manifest without the [complete] section.
+    tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
+    awk '
+        BEGIN { skip=0 }
+        /^\[complete\]/ { skip=1; next }
+        /^\[/ && skip { skip=0 }
+        !skip { print }
+    ' "$MANIFEST" >"$tmp_manifest" && mv "$tmp_manifest" "$MANIFEST"
+fi
+
+# Step 8: Skill symlink
+mkdir -p "$HOME/.agents/skills"
+SKILL_LINK="$HOME/.agents/skills/free-models-junior"
+# Point at the installed copy: a symlink into the repo would dangle if the
+# checkout is a worktree that later gets pruned.
+SKILL_TARGET="$STATE_DIR/skills/free-models-junior"
+if [[ -L "$SKILL_LINK" ]]; then
+    # Resolve both sides: if any component of STATE_DIR/HOME is itself a
+    # symlink, readlink -f canonicalises the link target but not the literal
+    # SKILL_TARGET, so an owned, correctly-pointed link would read as mismatched.
+    current_target="$(readlink -f "$SKILL_LINK")"
+    want_target="$(readlink -f "$SKILL_TARGET")"
+    if [[ "$current_target" != "$want_target" ]]; then
+        # An owned link (recorded in the manifest) pointing somewhere else is
+        # re-pointed rather than fatal: the installer moved the target, and
+        # --update is the documented repair. An unowned link is never touched,
+        # with or without --update.
+        if grep -qF "$SKILL_LINK " "$MANIFEST" 2>/dev/null; then
+            ln -sfn "$SKILL_TARGET" "$SKILL_LINK"
+        else
+            die "skill link $SKILL_LINK exists but points to $current_target (expected $SKILL_TARGET)"
+        fi
+    fi
+elif [[ -e "$SKILL_LINK" ]]; then
+    # Check if owned in manifest
+    owned_skill=0
+    if [[ -f "$MANIFEST" ]]; then
+        while IFS= read -r line; do
+            [[ "$line" == /* ]] || continue
+            path="${line%% sha256:*}"
+            path="${path%% symlink:*}"
+            [[ "$path" == "$SKILL_LINK" ]] && owned_skill=1
+        done < <(manifest_rows files)
+    fi
+    [[ $owned_skill -eq 1 ]] || die "skill link target $SKILL_LINK exists and is not owned by manifest"
+    # Already owned: leave it, and do not re-record it as a fresh claim.
+else
+    ln -s "$SKILL_TARGET" "$SKILL_LINK"
+    manifest_add "[files]" "$SKILL_LINK symlink:$SKILL_TARGET"
+fi
+
+# Step 9: AGENTS.md block
+if [[ $HARNESS_INTEGRATION -eq 1 ]]; then
+    BEGIN_MARK='<!-- free-models-junior:begin -->'
+    END_MARK='<!-- free-models-junior:end -->'
+    AGENTS_BODY="For free coding models, read \`${STATE_DIR}/free_models_junior.json\` and use the \`free-models-junior\` skill to delegate junior tasks."
+    # Count marker occurrences. grep -c prints 0 and exits 1 on no match, which
+    # under `set -e` would abort the install; the `|| true` keeps it benign.
+    begin_count=$(grep -cF "$BEGIN_MARK" "$AGENTS_MD_PATH" 2>/dev/null | head -1) || true
+    end_count=$(grep -cF "$END_MARK" "$AGENTS_MD_PATH" 2>/dev/null | head -1) || true
+    begin_count="${begin_count:-0}"
+    end_count="${end_count:-0}"
+    # True only when this installer created the block. A pre-existing block is
+    # left alone and never recorded, so uninstall cannot delete user content.
+    agents_block_owned=0
+    if [[ $begin_count -eq 1 && $end_count -eq 1 ]]; then
+        if grep -qxF "path=$AGENTS_MD_PATH" "$MANIFEST" 2>/dev/null; then
+            # We recorded this block at install time. Replace it only while the
+            # enclosed text still matches that hash; otherwise the user edited it
+            # and it is no longer ours to rewrite.
+            tmp_now="$(mktemp "$STATE_DIR/block.XXXXXX")"
+            awk -v begin="$BEGIN_MARK" -v end="$END_MARK" '
+                $0 == begin { inside=1; next }
+                $0 == end   { inside=0; next }
+                inside     { print }
+            ' "$AGENTS_MD_PATH" >"$tmp_now"
+            now_sha="$(sha_of "$tmp_now")"
+            rm -f "$tmp_now"
+            recorded_sha="$(sed -n 's/^block_sha256=//p' "$MANIFEST" | tail -1)"
+            if [[ -z "$recorded_sha" ]]; then
+                # No recorded hash means we cannot prove the block is still ours.
+                printf 'WARNING: AGENTS.md block ownership is unknown; leaving it alone\n' >&2
+            elif [[ "$now_sha" != "$recorded_sha" ]]; then
+                printf 'WARNING: AGENTS.md block was edited; leaving it alone\n' >&2
+            else
+                # Replace the enclosed lines, keeping the markers. The body is
+                # byte-identical to the append path so the recorded hash holds.
+                tmp_agents="$(mktemp "$STATE_DIR/AGENTS.md.XXXXXX")"
+                awk -v begin="$BEGIN_MARK" -v end="$END_MARK" -v block="$AGENTS_BODY" '
+                    $0 == begin { print; print block; skipping=1; next }
+                    $0 == end   { skipping=0; print; next }
+                    skipping    { next }
+                    { print }
+                ' "$AGENTS_MD_PATH" >"$tmp_agents"
+                # mktemp creates 0600; restore the original mode so the shared
+                # instructions file keeps its permissions across the atomic mv.
+                agents_mode="$(stat -c '%a' "$AGENTS_MD_PATH" 2>/dev/null || true)"
+                mv "$tmp_agents" "$AGENTS_MD_PATH"
+                [[ -n "$agents_mode" ]] && chmod "$agents_mode" "$AGENTS_MD_PATH" 2>/dev/null || true
+                agents_block_owned=1
+            fi
+        else
+            printf 'WARNING: AGENTS.md already has a free-models-junior block; leaving it alone\n' >&2
+        fi
+    else
+        # Backup before append, inside the state dir so it is recorded and
+        # removed by --uninstall rather than left in the user's tracked repo.
+        backup_dir="$STATE_DIR/backups"
+        mkdir -p "$backup_dir" || printf 'WARNING: could not create backup dir\n' >&2
+        backup_file="$backup_dir/AGENTS.md.$(date +%Y%m%dT%H%M%S).bak"
+        cp "$AGENTS_MD_PATH" "$backup_file" 2>/dev/null || printf 'WARNING: backup failed\n' >&2
+        if [[ -f "$backup_file" ]]; then
+            manifest_add "[files]" "$backup_file sha256:$(sha_of "$backup_file")"
+        fi
+        # Append block
+        {
+            printf '\n'
+            printf '%s\n' "$BEGIN_MARK"
+            printf '%s\n' "$AGENTS_BODY"
+            printf '%s\n' "$END_MARK"
+        } >>"$AGENTS_MD_PATH"
+        agents_block_owned=1
+    fi
+    # Record hash of enclosed text
+    # Extract lines between markers to temp file
+    tmp_block="$(mktemp "$STATE_DIR/block.XXXXXX")"
+    awk -v begin="$BEGIN_MARK" -v end="$END_MARK" '
+        $0 == begin { in_block=1; next }
+        $0 == end { in_block=0; next }
+        in_block { print }
+    ' "$AGENTS_MD_PATH" >"$tmp_block"
+    block_sha="$(sha_of "$tmp_block")"
+    rm -f "$tmp_block"
+    if [[ $agents_block_owned -eq 1 ]]; then
+        # Record path= and block_sha256= under [agents_md], replacing any previous
+        # values so a re-run does not append duplicates.
+        tmp_manifest="$(mktemp "$STATE_DIR/manifest.XXXXXX")"
+        {
+            cat "$MANIFEST"
+            grep -qxF '[agents_md]' "$MANIFEST" 2>/dev/null || printf '\n[agents_md]\n'
+            printf 'path=%s\n' "$AGENTS_MD_PATH"
+            printf 'block_sha256=%s\n' "$block_sha"
+        } >"$tmp_manifest"
+        # Drop earlier path=/block_sha256= lines inside the section, keeping the last.
+        awk '
+            /^path=/ { path=$0; next }
+            /^block_sha256=/ { sha=$0; next }
+            { print }
+            END {
+                if (path != "") print path
+                if (sha != "") print sha
+            }
+        ' "$tmp_manifest" >"$tmp_manifest.new" && mv "$tmp_manifest.new" "$MANIFEST"
+        rm -f "$tmp_manifest"
+    fi
+fi
+
+# Step 10: Bootstrap
+# The filter reads AA_API_KEY from its environment; the values parsed from .env
+# are shell variables, so they must be exported before the non-interactive run.
+export AA_API_KEY
+if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then export OPENROUTER_API_KEY; fi
+
+# Stage inside the state dir under a name this installer owns. Preflight already
+# rejected a non-empty staging dir, so this is a plain mkdir.
+STAGE="$STATE_DIR/staging-bootstrap"
+mkdir -p "$STAGE"
+# Publish only when the destination does not already exist, so a pre-existing
+# catalogue is never overwritten and later claimed by uninstall.
+# Bootstrap skips the probe when the catalogue was not published by THIS run. A
+# manifest entry from an earlier run is not evidence, so track publication here.
+CATALOGUE_PUBLISHED=0
+# The exact digest published for free_models.json this run (empty if not
+# published), so the bootstrap probe pins to the published bytes.
+cat_published_hash=""
+# Publish a staged file to $STATE_DIR without ever clobbering an existing path.
+# Uses a hard link, which fails atomically when the destination exists, so there
+# is no check-then-rename window and no fallback that could race. Returns 0 when
+# published, 1 when the destination already exists.
+# Publish a staged file to $STATE_DIR without ever clobbering an existing path.
+# The state dir is created 0700 by the installer, so no other account can write
+# to it; the remaining check-then-link window is therefore only reachable by a
+# process running as this user, which is out of scope. Within that boundary:
+#   - replace=1 (an --update of an owned path) uses -f after re-verifying the
+#     recorded hash against a plain file;
+#   - otherwise a plain ln -T is used, which fails atomically if anything exists.
+publish_no_clobber() {
+    local src="$1" dest="$2" replace="${3:-0}"
+    # -T treats the destination as a plain file: without it, a symlink to a
+    # directory would receive the link inside that directory and report success.
+    # With replace=1 (an --update of an owned path) -f is required, because the
+    # destination normally exists. The helper re-verifies ownership itself rather
+    # than trusting the caller: the recorded hash must match a plain file.
+    if [ "$replace" = "1" ] && [ -e "$dest" ] && [ ! -L "$dest" ]; then
+        # Ownership is proven by an anchored [files] row for this exact path,
+        # not by hash equality: after a crash between publish and record the
+        # bytes may differ from the recorded digest, and --update is the
+        # explicit, user-driven recovery path (the caller only passes replace=1
+        # on --update for a path that already has a row).
+        local rec
+        rec="$(awk -v p="$dest sha256:" 'index($0, p) == 1 { sub(/.*sha256:/, ""); print; exit }' "$MANIFEST" 2>/dev/null)" || true
+        if [ -n "$rec" ]; then
+            if ln -T -f "$src" "$dest" 2>/dev/null; then
+                rm -f "$src"
+                return 0
+            fi
+        fi
+    elif [ ! -e "$dest" ] && [ ! -L "$dest" ]; then
+        if ln -T "$src" "$dest" 2>/dev/null; then
+            rm -f "$src"
+            return 0
+        fi
+    fi
+    # Distinguish "already there" from "the filesystem refused the link": the
+    # caller must not treat a hard-link-capability failure as a harmless skip.
+    if [[ -e "$dest" || -L "$dest" ]]; then
+        return 1
+    fi
+    return 2
+}
+
+publish_catalogue() {
+    local src
+    for src in "$STAGE"/free_models*; do
+        [[ -f "$src" ]] || continue
+        local dest="$STATE_DIR/$(basename "$src")"
+        # Hash the staged bytes before publishing, so the recorded digest
+        # describes exactly what we are about to move.
+        local src_hash
+        src_hash="$(sha_of "$src")"
+        # On --update an owned destination is replaced; otherwise the
+        # non-clobbering path is used so a foreign file is never touched.
+        local replace=0
+        if [[ $DO_UPDATE -eq 1 && -e "$dest" && ! -L "$dest" ]]; then
+            # A symlink is never replaced, and the hash is only trusted for a
+            # plain file: sha256sum would otherwise follow the link. Adopt on
+            # --update whenever the path is an owned artifact (has a [files]
+            # row), even if its bytes diverged from the recorded hash (e.g. a
+            # crash between publish and record left new bytes under an old
+            # hash). --update is the explicit, user-driven recovery path; a
+            # foreign file with no row is still never overwritten.
+            local rec
+            rec="$(grep -F "$dest " "$MANIFEST" 2>/dev/null | head -1 | sed 's/.*sha256://')" || true
+            [[ -n "$rec" ]] && replace=1
+        fi
+        # errexit is disabled around the call so a non-zero rc reaches the check.
+        set +e
+        publish_no_clobber "$src" "$dest" "$replace"
+        publish_rc=$?
+        set -e
+        if [[ $publish_rc -ne 0 ]]; then
+            if [[ $publish_rc -eq 2 ]]; then
+                die "cannot publish $dest: hard links are unavailable here" 1
+            fi
+            printf 'WARNING: %s already exists; not overwriting\n' "$dest" >&2
+            # Drop the skipped file so a later --update does not see a non-empty
+            # staging dir and refuse to proceed.
+            rm -f "$src"
+            continue
+        fi
+        manifest_add "[files]" "$dest sha256:$src_hash"
+        # Only the catalogue itself counts: publishing a sibling CSV must not
+        # make bootstrap probe a pre-existing free_models.json. Record the exact
+        # digest we published so the bootstrap probe can pin to it without
+        # rehashing the destination (which a concurrent replacement could change).
+        if [[ "$(basename "$dest")" == "free_models.json" ]]; then
+            CATALOGUE_PUBLISHED=1
+            cat_published_hash="$src_hash"
+        fi
+    done
+}
+# Stage inside the state dir under a name this installer owns. Preflight already
+# rejected a non-empty staging dir, so this is a plain mkdir.
+STAGE="$STATE_DIR/staging-bootstrap"
+mkdir -p "$STAGE"
+stage_ready=0
+if [[ $stage_ready -eq 0 ]]; then
+    # On --update with an owned, unchanged catalogue there is nothing to rebuild:
+    # the timer already refreshed it, so re-running the filter would spend 300 s
+    # and an AA request only to discard every byte at publish time.
+    # Anchored lookup (a row that starts with "<path> sha256:"), so a row for a
+    # different path merely ending in the catalogue path cannot authorize it.
+    cat_recorded="$(awk -v p="$STATE_DIR/free_models.json sha256:" 'index($0, p) == 1 { sub(/.*sha256:/, ""); print; exit }' "$MANIFEST" 2>/dev/null)" || true
+    cat_current="$(sha256sum "$STATE_DIR/free_models.json" 2>/dev/null | cut -d' ' -f1)" || true
+    # Require a plain file (not a symlink whose target happens to match) and a
+    # matching recorded digest before trusting the existing catalogue.
+    if [[ $DO_UPDATE -eq 1 && -n "$cat_recorded" && "$cat_recorded" == "$cat_current" \
+          && -f "$STATE_DIR/free_models.json" && ! -L "$STATE_DIR/free_models.json" ]]; then
+        printf 'NOTE: catalogue already owned and unchanged; skipping the filter\n' >&2
+        CATALOGUE_PUBLISHED=1
+        cat_published_hash="$cat_recorded"
+        stage_ready=1
+    fi
+fi
+if [[ $stage_ready -eq 0 ]]; then
+    timeout 300 python3 "$STATE_DIR/free_model_filter.py" --require-agent-ready \
+        --output-prefix "$STAGE/free_models" || die "catalogue bootstrap failed" 1
+    # Validate the staged catalogue before publishing anything.
+    python3 - "$STAGE/free_models.json" <<'PY' || die "bootstrap JSON validation failed" 1
+import json, sys
+with open(sys.argv[1]) as handle:
+    data = json.load(handle)
+summary = data.get("summary")
+if not isinstance(summary, dict):
+    raise SystemExit("summary missing")
+generated = summary.get("generated_unix")
+if isinstance(generated, bool) or not isinstance(generated, (int, float)):
+    raise SystemExit("generated_unix missing or not a number")
+if not isinstance(data.get("models"), list):
+    raise SystemExit("models missing or not a list")
+PY
+    # Publish regular files only, recording each one.
+    publish_catalogue
+fi
+# The probe writes the state file directly. Claim it only when this bootstrap
+# created it, so a pre-existing state file is never adopted for deletion.
+state_existed=0
+# -L as well as -e: a dangling symlink is still a path we must not replace.
+if [[ -e "$STATE_DIR/free_models_junior.json" || -L "$STATE_DIR/free_models_junior.json" ]]; then state_existed=1; fi
+if [[ $CATALOGUE_PUBLISHED -ne 1 ]]; then
+    # No usable catalogue was published by THIS run (for example every publish
+    # was skipped because a foreign file was in the way): leave the existing
+    # state alone rather than probing a catalogue this install does not own.
+    printf 'WARNING: no catalogue published by this run; skipping the bootstrap probe\n' >&2
+    rm -rf "$STAGE"
+    stage_ready=0
+else
+    # Probe to a staging path first: a pre-existing state file must not be
+    # replaced by a writer, and a failed sweep must not destroy it. Pin the
+    # probe to the exact published bytes with --expect-sha256 (the digest we
+    # published this run), as the scheduled refresh does -- never a rehash of
+    # the destination, which a concurrent replacement could have changed.
+    cat_hash="$cat_published_hash"
+    PROBE_STATE="$STAGE/free_models_junior.json"
+    probe_rc=0
+    timeout 700 python3 "$STATE_DIR/free-models-probe.py" \
+        --catalogue "$STATE_DIR/free_models.json" \
+        --expect-sha256 "$cat_hash" \
+        --state "$PROBE_STATE" \
+        --env-file "$STATE_DIR/free-models.env" || probe_rc=$?
+    if [[ $probe_rc -ne 0 ]]; then
+        # A stale or pre-existing catalogue is not fatal: keep what is there and
+        # let the scheduled refresh sort it out.
+        printf 'WARNING: bootstrap probe failed (exit %d); keeping existing state\n' "$probe_rc" >&2
+        rm -f "$PROBE_STATE"
+    elif [[ -f "$PROBE_STATE" ]]; then
+        # Publish when the state file is absent, or on --update when it is an
+        # owned artifact (anchored [files] row) so a crash between publish and
+        # record is recoverable. A foreign file with no row is never overwritten.
+        replace=0
+        if [[ $state_existed -eq 1 ]]; then
+            if [[ $DO_UPDATE -eq 1 ]] && awk -v p="$STATE_DIR/free_models_junior.json sha256:" 'index($0,p)==1{f=1} END{exit(f?0:1)}' "$MANIFEST" 2>/dev/null; then
+                replace=1
+            else
+                replace=-1
+            fi
+        fi
+        if [[ $replace -ge 0 ]]; then
+            probe_hash="$(sha_of "$PROBE_STATE")"
+            set +e
+            publish_no_clobber "$PROBE_STATE" "$STATE_DIR/free_models_junior.json" "$replace"
+            publish_rc=$?
+            set -e
+            if [[ $publish_rc -eq 0 ]]; then
+                manifest_add "[files]" "$STATE_DIR/free_models_junior.json sha256:$probe_hash"
+            elif [[ $publish_rc -eq 2 ]]; then
+                die "cannot publish $STATE_DIR/free_models_junior.json: hard links are unavailable here" 1
+            else
+                printf 'WARNING: %s already exists; not overwriting\n' \
+                    "$STATE_DIR/free_models_junior.json" >&2
+                rm -f "$PROBE_STATE"
+            fi
+        else
+            printf 'WARNING: %s already exists; not overwriting\n' "$STATE_DIR/free_models_junior.json" >&2
+            rm -f "$PROBE_STATE"
+        fi
+    fi
+    rm -rf "$STAGE"
+fi
+
+# Step 11: Timers
+systemctl --user daemon-reload || printf 'WARNING: systemctl --user daemon-reload failed\n' >&2
+if ! systemctl --user enable --now free-models-refresh.timer free-models-probe.timer; then
+    # A sandbox or a host without a reachable user bus lands here. The units are
+    # written and the manifest is accurate, so this is a warning, not a failure.
+    printf 'WARNING: could not enable timers; run "systemctl --user enable --now free-models-refresh.timer free-models-probe.timer" later\n' >&2
+fi
+
+# Step 12: Complete + summary
+manifest_add "[complete]" "1"
+printf 'State dir: %s\n' "$STATE_DIR"
+printf 'Repo: %s\n' "$REPO_ROOT"
+printf 'Refresh interval: %s\n' "$INTERVAL_REFRESH"
+printf 'Probe interval: %s\n' "$INTERVAL_PROBE"
+systemctl --user list-timers 'free-models-*' || true
+printf 'Uninstall with: ./install.sh --uninstall\n'
