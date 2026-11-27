@@ -23,6 +23,7 @@ for the lifetime of the new process. fd 9 is the same number the shell scripts
 expect.
 """
 
+import errno
 import fcntl
 import os
 import stat
@@ -84,7 +85,14 @@ def main(argv):
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             break
-        except OSError:
+        except OSError as exc:
+            # Only contention (the lock is held elsewhere) is retried. Any other
+            # error (ENOLCK on NFS/CIFS, EBADF, ...) is a real failure and must
+            # not be reported as normal contention (which the units treat as
+            # success via SuccessExitStatus=75).
+            if exc.errno not in (errno.EWOULDBLOCK, errno.EAGAIN):
+                os.close(fd)
+                fail(f"could not lock {lock}: {exc}", 1)
             if time.monotonic() >= deadline:
                 os.close(fd)
                 fail(f"could not acquire lock {lock} within {wait:g}s", 75)

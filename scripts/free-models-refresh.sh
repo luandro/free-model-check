@@ -79,6 +79,19 @@ fi
 # here, which is what makes its check-then-link window unreachable in practice.
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR" 2>/dev/null || true
+# Enforce that the state dir is ours and 0700 (not a symlink, not a foreign
+# dir): the publish safety argument depends on it, so a STATE_DIR override that
+# points elsewhere must fail loudly rather than proceed.
+if [ -L "$STATE_DIR" ]; then
+    echo "state dir $STATE_DIR is a symlink; refusing to use it" >&2
+    exit 1
+fi
+sd_uid="$(stat -c '%u' "$STATE_DIR" 2>/dev/null || echo '?')"
+sd_mode="$(stat -c '%a' "$STATE_DIR" 2>/dev/null || echo '?')"
+if [ "$sd_uid" != "$(id -u)" ] || [ "$sd_mode" != "700" ]; then
+    echo "state dir $STATE_DIR must be owned by $(id -u) with mode 700 (got $sd_uid:$sd_mode)" >&2
+    exit 1
+fi
 
 # 3. Acquire the exclusive lock before loading credentials. The helper opens
 # the lock O_RDONLY|O_NOFOLLOW|O_NONBLOCK (a symlink is never followed and a
@@ -322,8 +335,10 @@ cat_current="$(sha256sum "$CATALOGUE" 2>/dev/null | cut -d' ' -f1)" || true
 if [ -z "$cat_recorded" ] || [ "$cat_recorded" != "$cat_current" ]; then
     # No manifest row, or the file changed since we recorded it: it is not ours
     # to probe, it may be malformed, and it may not be a free-model report.
+    # Exit non-zero (74: "cannot probe") so systemd surfaces the problem instead
+    # of recording a silent success.
     echo "warning: $CATALOGUE is not owned or was modified; skipping the probe" >&2
-    exit 0
+    exit 74
 fi
 # Probe to a staging path, then publish only if the state file is ours or absent.
 # A pre-existing state file is never replaced by a scheduled sweep.
@@ -333,11 +348,11 @@ if [ -e "$STATE_FILE" ] || [ -L "$STATE_FILE" ]; then
     current="$(sha256sum "$STATE_FILE" 2>/dev/null | cut -d' ' -f1)" || true
     if [ -z "$recorded" ] || [ "$recorded" != "$current" ]; then
         echo "warning: $STATE_FILE is not ours or was modified; not overwriting" >&2
-        exit 0
+        exit 74
     fi
 fi
 PROBE_TMP="$STATE_FILE.tmp.$$"
-python3 "$PROBE" --catalogue "$CATALOGUE" --state "$PROBE_TMP" --env-file "$ENV_FILE" \
+timeout 700 python3 "$PROBE" --catalogue "$CATALOGUE" --state "$PROBE_TMP" --env-file "$ENV_FILE" \
     --expect-sha256 "$cat_recorded" || prc=$?
 if [ "$prc" -ne 0 ]; then
     rm -f "$PROBE_TMP"

@@ -510,6 +510,16 @@ done < "$REPO_ROOT/.env"
 # Step 2
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR" 2>/dev/null || true
+# Enforce that the state dir is ours and 0700 (not a symlink, not a foreign
+# dir): the publish safety argument depends on it.
+if [[ -L "$STATE_DIR" ]]; then
+    die "$STATE_DIR is a symlink; refusing to use it" 1
+fi
+sd_uid="$(stat -c '%u' "$STATE_DIR" 2>/dev/null || echo '?')"
+sd_mode="$(stat -c '%a' "$STATE_DIR" 2>/dev/null || echo '?')"
+if [[ "$sd_uid" != "$(id -u)" || "$sd_mode" != "700" ]]; then
+    die "$STATE_DIR must be owned by $(id -u) with mode 700 (got $sd_uid:$sd_mode)" 1
+fi
 
 # Step 3: Lock via the hardened helper (O_NOFOLLOW|O_NONBLOCK open, regular-file
 # check, bounded flock), which re-execs this script with the lock on fd 9. The
@@ -641,11 +651,14 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-Environment=STATE_DIR=$STATE_DIR
-ExecStart=$STATE_DIR/free-models-refresh.sh
-WorkingDirectory=$STATE_DIR
+Environment=STATE_DIR="$STATE_DIR"
+ExecStart="$STATE_DIR/free-models-refresh.sh"
+WorkingDirectory="$STATE_DIR"
 # Exit 75 means another run held the lock: routine, not a failure.
 SuccessExitStatus=75
+# A run that hangs (e.g. a probe child that will not die) must not hold the
+# lock forever and starve every later tick.
+TimeoutStartSec=1800
 EOF
 manifest_add "[units]" "free-models-refresh.service sha256:$(sha_of "$UNIT_DIR/free-models-refresh.service")"
 
@@ -671,10 +684,11 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-Environment=STATE_DIR=$STATE_DIR
-ExecStart=$STATE_DIR/free-models-refresh.sh --skip-filter
-WorkingDirectory=$STATE_DIR
+Environment=STATE_DIR="$STATE_DIR"
+ExecStart="$STATE_DIR/free-models-refresh.sh" --skip-filter
+WorkingDirectory="$STATE_DIR"
 SuccessExitStatus=75
+TimeoutStartSec=1800
 EOF
 manifest_add "[units]" "free-models-probe.service sha256:$(sha_of "$UNIT_DIR/free-models-probe.service")"
 
@@ -1042,27 +1056,37 @@ else
         # let the scheduled refresh sort it out.
         printf 'WARNING: bootstrap probe failed (exit %d); keeping existing state\n' "$probe_rc" >&2
         rm -f "$PROBE_STATE"
-    elif [[ $state_existed -eq 0 && -f "$PROBE_STATE" ]]; then
-        # Hash the staged bytes first, then publish atomically: a file that
-        # appeared during the sweep is never clobbered, and the recorded digest
-        # describes what we actually moved.
-        probe_hash="$(sha_of "$PROBE_STATE")"
-        set +e
-        publish_no_clobber "$PROBE_STATE" "$STATE_DIR/free_models_junior.json"
-        publish_rc=$?
-        set -e
-        if [[ $publish_rc -eq 0 ]]; then
-            manifest_add "[files]" "$STATE_DIR/free_models_junior.json sha256:$probe_hash"
-        elif [[ $publish_rc -eq 2 ]]; then
-            die "cannot publish $STATE_DIR/free_models_junior.json: hard links are unavailable here" 1
+    elif [[ -f "$PROBE_STATE" ]]; then
+        # Publish when the state file is absent, or on --update when it is an
+        # owned artifact (anchored [files] row) so a crash between publish and
+        # record is recoverable. A foreign file with no row is never overwritten.
+        replace=0
+        if [[ $state_existed -eq 1 ]]; then
+            if [[ $DO_UPDATE -eq 1 ]] && awk -v p="$STATE_DIR/free_models_junior.json sha256:" 'index($0,p)==1{f=1} END{exit(f?0:1)}' "$MANIFEST" 2>/dev/null; then
+                replace=1
+            else
+                replace=-1
+            fi
+        fi
+        if [[ $replace -ge 0 ]]; then
+            probe_hash="$(sha_of "$PROBE_STATE")"
+            set +e
+            publish_no_clobber "$PROBE_STATE" "$STATE_DIR/free_models_junior.json" "$replace"
+            publish_rc=$?
+            set -e
+            if [[ $publish_rc -eq 0 ]]; then
+                manifest_add "[files]" "$STATE_DIR/free_models_junior.json sha256:$probe_hash"
+            elif [[ $publish_rc -eq 2 ]]; then
+                die "cannot publish $STATE_DIR/free_models_junior.json: hard links are unavailable here" 1
+            else
+                printf 'WARNING: %s already exists; not overwriting\n' \
+                    "$STATE_DIR/free_models_junior.json" >&2
+                rm -f "$PROBE_STATE"
+            fi
         else
-            printf 'WARNING: %s already exists; not overwriting\n' \
-                "$STATE_DIR/free_models_junior.json" >&2
+            printf 'WARNING: %s already exists; not overwriting\n' "$STATE_DIR/free_models_junior.json" >&2
             rm -f "$PROBE_STATE"
         fi
-    elif [[ $state_existed -eq 1 ]]; then
-        printf 'WARNING: %s already exists; not overwriting\n' "$STATE_DIR/free_models_junior.json" >&2
-        rm -f "$PROBE_STATE"
     fi
     rm -rf "$STAGE"
 fi
@@ -1081,5 +1105,5 @@ printf 'State dir: %s\n' "$STATE_DIR"
 printf 'Repo: %s\n' "$REPO_ROOT"
 printf 'Refresh interval: %s\n' "$INTERVAL_REFRESH"
 printf 'Probe interval: %s\n' "$INTERVAL_PROBE"
-systemctl --user list-timers 'free-models-*'
+systemctl --user list-timers 'free-models-*' || true
 printf 'Uninstall with: ./install.sh --uninstall\n'

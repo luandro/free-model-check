@@ -60,7 +60,7 @@ refreshed automatically by systemd timers. `STATE_DIR` below defaults to `~/.sof
 - If nothing is available, start a refresh with
   `systemctl --user start free-models-refresh.service`, or wait for the next
   30-minute probe. Do not run `~/.software-factory/free-models-refresh.sh`
-  directly: the installed copy needs `REPO_DIR` from its systemd unit.
+  directly: the installed copy expects `STATE_DIR` from its systemd unit.
 - Do not edit the state file.
 - A one-token probe proves reachability, not coding quality.
 - Paths: state `STATE_DIR/free_models_junior.json`, catalogue `STATE_DIR/free_models.json`, lock `STATE_DIR/refresh.lock`, wrapper `STATE_DIR/free-models-refresh.sh` (STATE_DIR defaults to `~/.software-factory`).

@@ -559,8 +559,10 @@ def run_cli_probe(request: dict[str, Any], timeout: float,
     # PATH and a relative one could pick a workspace executable.
     if not os.path.isabs(command[0]):
         return probe_result(None, None, "opencode binary is not an absolute path")
-    argv = namespace_command(command)
+    sandbox = build_cli_sandbox(os.getcwd())
+    argv = namespace_command(command, sandbox)
     if argv is None:
+        cleanup_cli_sandbox(sandbox)
         return probe_result(None, None, "no pid namespace available (bwrap missing)")
     # bwrap registers its parent-death signal during startup, so a deadline that
     # lands before that registration cannot be caught by --die-with-parent. That
@@ -574,8 +576,10 @@ def run_cli_probe(request: dict[str, Any], timeout: float,
             stderr=subprocess.PIPE,
             text=True,
             start_new_session=True,
+            env=sandbox["env"],
         )
     except OSError as exc:
+        cleanup_cli_sandbox(sandbox)
         return probe_result(None, None, short_reason(exc))
     # bwrap is the namespace init (PID 1 in the namespace) and --die-with-parent
     # ties its lifetime to this worker, so a deadline kill tears the tree down.
@@ -593,6 +597,7 @@ def run_cli_probe(request: dict[str, Any], timeout: float,
         if process.poll() is None:
             terminate_group(process.pid)
         close_pipes(process)
+        cleanup_cli_sandbox(sandbox)
     latency = elapsed_ms(started)
     if timed_out:
         return probe_result(None, None, "timeout")
@@ -609,13 +614,19 @@ def run_cli_probe(request: dict[str, Any], timeout: float,
     return probe_result(False, None, "empty stdout", latency)
 
 
-def namespace_command(command: list[str]) -> list[str] | None:
+def namespace_command(command: list[str], sandbox: dict[str, Any]) -> list[str] | None:
     """Wrap argv in a PID namespace via bwrap, or None when unavailable.
 
-    Only the PID namespace is created.  The host filesystem is bound read-only,
-    ``/tmp`` is a writable tmpfs, and the CLI's own state directory is bound
-    writable, because a CLI that cannot write its log or cache fails for reasons
-    unrelated to the route being probed.
+    The host filesystem is bound read-only; /tmp stays a writable host bind.
+    The OpenCode data dir (auth/DB) is bound read-write so the CLI can run, and
+    cache/runtime are fresh tmpfs. ~/.ssh is masked with an empty tmpfs. Network
+    is left open because the CLI must reach the model API.
+
+    Note: this is filesystem/credential containment, not tool denial. The
+    OpenCode CLI talks to the user's background service, which loads the user's
+    real config, so per-tool permission rules cannot be enforced here; the
+    protection is that the child environment carries none of the probe's
+    provider keys and ~/.ssh is unreadable.
     """
     binary = shutil.which("bwrap")
     if not binary:
@@ -635,29 +646,64 @@ def namespace_command(command: list[str]) -> list[str] | None:
         "/",
         "/",
     ]
-    # /tmp must stay usable and writable: the CLI writes scratch files there,
-    # and shadowing it would hide anything already staged under /tmp.
     if os.path.isdir("/tmp"):
         argv += ["--bind", "/tmp", "/tmp"]
-    for path in writable_cli_paths():
-        argv += ["--bind", path, path]
+    # Mask the user's SSH keys with an empty tmpfs.
+    ssh_dir = os.path.expanduser("~/.ssh")
+    if os.path.isdir(ssh_dir):
+        argv += ["--tmpfs", ssh_dir]
+    # The OpenCode data dir (auth/DB) must stay writable for the CLI to run.
+    data_home = sandbox.get("data_home")
+    if data_home and os.path.isdir(data_home):
+        argv += ["--bind", data_home, data_home]
+    # Throwaway cache/runtime tmpfs so the CLI does not touch the real caches.
+    for key in ("cache", "runtime"):
+        argv += ["--tmpfs", sandbox[key]]
     argv += list(command)
     return argv
 
 
-def writable_cli_paths() -> list[str]:
-    """Host directories the CLI must be able to write to, that exist."""
-    candidates = [
-        os.environ.get("XDG_DATA_HOME") or "~/.local/share",
-        os.environ.get("XDG_CACHE_HOME") or "~/.cache",
-        os.environ.get("XDG_CONFIG_HOME") or "~/.config",
-    ]
-    paths: list[str] = []
-    for candidate in candidates:
-        expanded = os.path.expanduser(candidate)
-        if os.path.isdir(expanded):
-            paths.append(expanded)
-    return paths
+def build_cli_sandbox(state_dir: str) -> dict[str, Any]:
+    """Build a throwaway sandbox for the OpenCode CLI probe.
+
+    The probe runs an untrusted free model. This provides filesystem and
+    credential containment: the child environment drops the probe's own
+    provider keys (AA_API_KEY, OPENROUTER_API_KEY, ...) so they are not
+    reachable, and ~/.ssh is masked. The OpenCode data dir is kept (the CLI
+    needs its auth) and cache/runtime are throwaway tmpfs.
+    """
+    base = tempfile.mkdtemp(prefix="fm-probe-")
+    cache = os.path.join(base, "cache")
+    runtime = os.path.join(base, "runtime")
+    for path in (cache, runtime):
+        os.makedirs(path, exist_ok=True)
+    os.chmod(runtime, 0o700)
+    data_home = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    # Minimal environment: no provider keys, no inherited secrets.
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", "/root"),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+        "XDG_DATA_HOME": data_home,
+        "XDG_CACHE_HOME": cache,
+        "XDG_RUNTIME_DIR": runtime,
+    }
+    return {
+        "base": base,
+        "cache": cache,
+        "runtime": runtime,
+        "data_home": data_home,
+        "env": env,
+        "secrets": state_dir,
+    }
+
+
+def cleanup_cli_sandbox(sandbox: dict[str, Any]) -> None:
+    """Remove the throwaway sandbox directory tree."""
+    base = sandbox.get("base")
+    if base:
+        shutil.rmtree(base, ignore_errors=True)
 
 
 def close_pipes(process: subprocess.Popen[str]) -> None:
